@@ -1,0 +1,20 @@
+# Consolidated Python requirements for this repository
+# Covers: backend APIs + webcam service dependencies across all phases.
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy>=2.0.36
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=5.0.0
+httpx>=0.28.0
+
+# Database driver for PostgreSQL URLs used in backend config/docker compose.
+psycopg2-binary>=2.9.10
+
+# Webcam service
+# 0.10.9 is not available for Python 3.12; 0.10.13+ is available.
+mediapipe>=0.10.13
+opencv-python==4.9.0.80
+numpy==1.26.3
