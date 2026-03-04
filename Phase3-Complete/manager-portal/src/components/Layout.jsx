@@ -1,12 +1,16 @@
 import React from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: '📊' },
   { path: '/employees', label: 'Employees', icon: '👥' },
   { path: '/departments', label: 'Departments', icon: '🏢' },
+  { path: '/analytics', label: 'Analytics', icon: '📈' },
+  { path: '/alerts', label: 'Alerts', icon: '🚨' },
   { path: '/domain-rules', label: 'Domain Rules', icon: '🌐' },
+  { path: '/integrations', label: 'Integrations', icon: '🔗' },
+  { path: '/ml-classifications', label: 'ML Classifications', icon: '🤖' },
 ];
 
 function Layout() {
@@ -25,7 +29,7 @@ function Layout() {
             </div>
 
             {/* Nav Links */}
-            <div className="hidden md:flex items-center space-x-1">
+            <div className="flex items-center gap-1 overflow-x-auto py-2">
               {navItems.map((item) => (
                 <NavLink
                   key={item.path}
