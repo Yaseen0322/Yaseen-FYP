@@ -29,7 +29,7 @@ A desktop-based productivity monitoring system for software houses that tracks e
 ## 📁 Project Structure
 
 ```
-Amina FYP/
+ FYP/
 ├── SRS/                        # Original requirements document
 │   └── project stack.docx
 │
