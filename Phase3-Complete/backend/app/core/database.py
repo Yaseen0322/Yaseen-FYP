@@ -36,5 +36,15 @@ def init_db():
     """
     Initialize database tables
     """
-    from app.models import user, organization, activity, presence, browser_usage
+    from app.models import (
+        activity,
+        alerts,
+        browser_usage,
+        daily_summary,
+        device,
+        integrations,
+        organization,
+        presence,
+        user,
+    )
     Base.metadata.create_all(bind=engine)
