@@ -6,7 +6,7 @@
 
 // Configuration
 const CONFIG = {
-    agentUrl: 'http://localhost:8080/browser-usage',
+    agentUrl: 'http://127.0.0.1:8080/browser-usage',
     sendInterval: 30000, // 30 seconds
     minDuration: 5, // Minimum seconds to track
 };

@@ -210,6 +210,22 @@ async def get_employee_timeline(
             "end_ts": i.end_ts.isoformat(),
             "duration_sec": i.duration_sec
         })
+
+    # Get active app intervals so timeline is useful even when presence data is sparse.
+    app_usages = db.query(AppUsage).filter(
+        AppUsage.user_id == employee_id,
+        AppUsage.start_ts >= start_dt,
+        AppUsage.end_ts <= end_dt
+    ).order_by(AppUsage.start_ts).all()
+
+    for a in app_usages:
+        blocks.append({
+            "type": "active",
+            "app_name": a.app_name,
+            "start_ts": a.start_ts.isoformat(),
+            "end_ts": a.end_ts.isoformat(),
+            "duration_sec": a.duration_sec
+        })
     
     blocks.sort(key=lambda x: x["start_ts"])
     

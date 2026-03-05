@@ -232,9 +232,12 @@ function EmployeeDetail() {
                 <span className="text-lg">
                   {block.type === 'present' ? '👤' :
                    block.type === 'absent' ? '🚫' :
-                   block.type === 'idle' ? '💤' : '📷'}
+                   block.type === 'idle' ? '💤' :
+                   block.type === 'active' ? '💻' : '📷'}
                 </span>
-                <span className="flex-1 capitalize font-medium text-slate-700">{block.type}</span>
+                <span className="flex-1 capitalize font-medium text-slate-700">
+                  {block.type === 'active' && block.app_name ? `${block.type} • ${block.app_name}` : block.type}
+                </span>
                 <span className="text-sm text-slate-500">
                   {new Date(block.start_ts).toLocaleTimeString()} - {new Date(block.end_ts).toLocaleTimeString()}
                 </span>

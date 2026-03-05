@@ -10,6 +10,7 @@ class IdleDetector {
         this.localStorage = localStorage;
         this.idleThreshold = options.idleThreshold || 120; // 2 minutes in seconds
         this.checkInterval = options.checkInterval || 5000; // Check every 5 seconds
+        this.chunkFlushInterval = options.chunkFlushInterval || 30; // Persist open idle every 30 seconds
         
         this.isRunning = false;
         this.isPaused = false;
@@ -17,6 +18,8 @@ class IdleDetector {
         
         this.isIdle = false;
         this.idleStart = null;
+        this.lastFlushedAt = null;
+        this.lastIdleSignalAt = null;
     }
 
     start() {
@@ -60,17 +63,26 @@ class IdleDetector {
         
         if (!this.isPaused) {
             try {
-                // Get system idle time in seconds
-                const idleSeconds = powerMonitor.getSystemIdleTime();
-                
-                if (idleSeconds >= this.idleThreshold) {
+                const idleSeconds = this.getIdleSeconds();
+                const idleState = this.getIdleState();
+                const idleByTime = typeof idleSeconds === 'number' && idleSeconds >= this.idleThreshold;
+                const idleByState = idleState === 'idle' || idleState === 'locked';
+
+                if (idleByTime || idleByState) {
                     // User is idle
                     if (!this.isIdle) {
                         // Transition to idle state
                         this.isIdle = true;
-                        // Idle started (threshold seconds ago)
-                        this.idleStart = new Date(Date.now() - (this.idleThreshold * 1000));
+                        // When idle_time is unavailable, use current time as conservative start.
+                        const backfillSec = idleByTime ? this.idleThreshold : 0;
+                        this.idleStart = new Date(Date.now() - (backfillSec * 1000));
+                        this.lastFlushedAt = this.idleStart;
+                        this.lastIdleSignalAt = new Date();
                         console.log('[IdleDetector] User went idle');
+                    } else {
+                        this.lastIdleSignalAt = new Date();
+                        // Persist partial idle so reports update while still idle.
+                        this.flushIdleChunk();
                     }
                 } else {
                     // User is active
@@ -92,22 +104,53 @@ class IdleDetector {
     finalizeIdleInterval() {
         if (this.isIdle && this.idleStart) {
             const endTime = new Date();
-            const durationMs = endTime - this.idleStart;
-            const durationSec = Math.floor(durationMs / 1000);
-            
-            // Only save if duration >= threshold
-            if (durationSec >= this.idleThreshold) {
-                const record = {
-                    start_ts: this.idleStart.toISOString(),
-                    end_ts: endTime.toISOString(),
-                    duration_sec: durationSec
-                };
-                
-                this.localStorage.saveIdleInterval(record);
-            }
+            this.saveIdleInterval(this.lastFlushedAt || this.idleStart, endTime);
             
             this.isIdle = false;
             this.idleStart = null;
+            this.lastFlushedAt = null;
+        }
+    }
+
+    flushIdleChunk() {
+        if (!this.isIdle || !this.lastFlushedAt) return;
+
+        const now = new Date();
+        const chunkSec = Math.floor((now - this.lastFlushedAt) / 1000);
+        if (chunkSec >= this.chunkFlushInterval) {
+            this.saveIdleInterval(this.lastFlushedAt, now);
+            this.lastFlushedAt = now;
+        }
+    }
+
+    saveIdleInterval(startTime, endTime) {
+        if (!startTime || !endTime || endTime <= startTime) return;
+        const durationSec = Math.floor((endTime - startTime) / 1000);
+        if (durationSec < 1) return;
+
+        const record = {
+            start_ts: startTime.toISOString(),
+            end_ts: endTime.toISOString(),
+            duration_sec: durationSec
+        };
+
+        this.localStorage.saveIdleInterval(record);
+    }
+
+    getIdleSeconds() {
+        try {
+            const idleSeconds = powerMonitor.getSystemIdleTime();
+            return Number.isFinite(idleSeconds) && idleSeconds >= 0 ? idleSeconds : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    getIdleState() {
+        try {
+            return powerMonitor.getSystemIdleState(this.idleThreshold);
+        } catch (_) {
+            return null;
         }
     }
 

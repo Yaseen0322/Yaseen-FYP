@@ -6,21 +6,34 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electr
 const path = require('path');
 const { ActivityTracker } = require('./modules/activity-tracker');
 const { IdleDetector } = require('./modules/idle-detector');
+const { PresenceTracker } = require('./modules/presence-tracker');
 const { DataSync } = require('./modules/data-sync');
+const { BrowserUsageServer } = require('./modules/browser-usage-server');
 const { LocalStorage } = require('./modules/local-storage');
 const Store = require('electron-store');
 
 // Store for app settings and auth
 const store = new Store();
+const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
 
 let mainWindow = null;
 let tray = null;
 let activityTracker = null;
 let idleDetector = null;
+let presenceTracker = null;
 let dataSync = null;
 let localStorage = null;
+let browserUsageServer = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+function getApiBaseUrl() {
+    return store.get('apiBaseUrl', DEFAULT_API_BASE_URL);
+}
+
+function apiUrl(path) {
+    return `${getApiBaseUrl()}${path}`;
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -80,6 +93,7 @@ function createTray() {
             click: () => {
                 if (activityTracker) activityTracker.pause();
                 if (idleDetector) idleDetector.pause();
+                if (presenceTracker) presenceTracker.pause();
             }
         },
         { 
@@ -87,6 +101,7 @@ function createTray() {
             click: () => {
                 if (activityTracker) activityTracker.resume();
                 if (idleDetector) idleDetector.resume();
+                if (presenceTracker) presenceTracker.resume();
             }
         },
         { type: 'separator' },
@@ -120,11 +135,28 @@ function initializeTracking() {
         idleThreshold: store.get('idleThreshold', 120) // 2 minutes
     });
     idleDetector.start();
+
+    // Initialize presence tracker (poll webcam-service)
+    presenceTracker = new PresenceTracker(localStorage, {
+        statusUrl: store.get('webcamStatusUrl', 'http://127.0.0.1:8001/status'),
+        pollInterval: store.get('presencePollInterval', 10000)
+    });
+    presenceTracker.start();
+
+    // Receive browser usage from extension on localhost:8080
+    browserUsageServer = new BrowserUsageServer(localStorage, {
+        host: '127.0.0.1',
+        port: 8080
+    });
+    browserUsageServer.start();
     
     // Initialize data sync
     const authToken = store.get('authToken');
     if (authToken) {
-        dataSync = new DataSync(localStorage, authToken);
+        dataSync = new DataSync(localStorage, authToken, {
+            baseUrl: getApiBaseUrl(),
+            syncInterval: store.get('syncInterval', 60000)
+        });
         dataSync.start();
     }
 }
@@ -135,7 +167,7 @@ function setupIPC() {
     ipcMain.handle('auth:login', async (event, { email, password }) => {
         const axios = require('axios');
         try {
-            const response = await axios.post('http://localhost:8000/api/v1/auth/login', {
+            const response = await axios.post(apiUrl('/auth/login'), {
                 email, password
             });
             const { access_token, refresh_token, user } = response.data;
@@ -145,7 +177,10 @@ function setupIPC() {
             
             // Start data sync
             if (dataSync) dataSync.stop();
-            dataSync = new DataSync(localStorage, access_token);
+            dataSync = new DataSync(localStorage, access_token, {
+                baseUrl: getApiBaseUrl(),
+                syncInterval: store.get('syncInterval', 60000)
+            });
             dataSync.start();
             
             return { success: true, user };
@@ -184,7 +219,7 @@ function setupIPC() {
         
         try {
             const response = await axios.post(
-                'http://localhost:8000/api/v1/devices/register',
+                apiUrl('/devices/register'),
                 {
                     machine_id: machineId,
                     hostname: os.hostname(),
@@ -208,6 +243,7 @@ function setupIPC() {
         return {
             activityTracking: activityTracker?.isRunning || false,
             idleTracking: idleDetector?.isRunning || false,
+            presenceTracking: presenceTracker?.isRunning || false,
             syncEnabled: dataSync?.isRunning || false
         };
     });
@@ -215,12 +251,14 @@ function setupIPC() {
     ipcMain.handle('tracking:pause', () => {
         if (activityTracker) activityTracker.pause();
         if (idleDetector) idleDetector.pause();
+        if (presenceTracker) presenceTracker.pause();
         return { success: true };
     });
 
     ipcMain.handle('tracking:resume', () => {
         if (activityTracker) activityTracker.resume();
         if (idleDetector) idleDetector.resume();
+        if (presenceTracker) presenceTracker.resume();
         return { success: true };
     });
 
@@ -229,13 +267,14 @@ function setupIPC() {
         const axios = require('axios');
         try {
             const response = await axios.get(
-                'http://localhost:8000/api/v1/me/summary',
+                apiUrl('/me/summary'),
                 {
                     headers: { Authorization: `Bearer ${store.get('authToken')}` }
                 }
             );
             return response.data;
         } catch (error) {
+            console.error('[Reports] Summary failed:', error.response?.data || error.message);
             return null;
         }
     });
@@ -244,13 +283,14 @@ function setupIPC() {
         const axios = require('axios');
         try {
             const response = await axios.get(
-                `http://localhost:8000/api/v1/me/timeline?target_date=${date}`,
+                apiUrl(`/me/timeline?target_date=${date}`),
                 {
                     headers: { Authorization: `Bearer ${store.get('authToken')}` }
                 }
             );
             return response.data;
         } catch (error) {
+            console.error('[Reports] Timeline failed:', error.response?.data || error.message);
             return null;
         }
     });
@@ -259,13 +299,14 @@ function setupIPC() {
         const axios = require('axios');
         try {
             const response = await axios.get(
-                `http://localhost:8000/api/v1/me/weekly?week_offset=${weekOffset}`,
+                apiUrl(`/me/weekly?week_offset=${weekOffset}`),
                 {
                     headers: { Authorization: `Bearer ${store.get('authToken')}` }
                 }
             );
             return response.data;
         } catch (error) {
+            console.error('[Reports] Weekly failed:', error.response?.data || error.message);
             return null;
         }
     });
@@ -308,7 +349,9 @@ app.on('before-quit', () => {
     app.isQuitting = true;
     if (activityTracker) activityTracker.stop();
     if (idleDetector) idleDetector.stop();
+    if (presenceTracker) presenceTracker.stop();
     if (dataSync) dataSync.stop();
+    if (browserUsageServer) browserUsageServer.stop();
 });
 
 // Auto-start on boot (Windows)

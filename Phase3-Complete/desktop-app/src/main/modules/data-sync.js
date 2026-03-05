@@ -9,7 +9,7 @@ class DataSync {
     constructor(localStorage, authToken, options = {}) {
         this.localStorage = localStorage;
         this.authToken = authToken;
-        this.baseUrl = options.baseUrl || 'http://localhost:8000/api/v1';
+        this.baseUrl = options.baseUrl || 'http://127.0.0.1:8000/api/v1';
         this.syncInterval = options.syncInterval || 60000; // 1 minute
         
         this.isRunning = false;
