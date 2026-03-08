@@ -210,7 +210,7 @@ async def get_department_details(
 @router.get("/departments/comparison")
 async def compare_departments(
     target_date: Optional[date] = Query(default=None),
-    metric: str = Query(default="focus", regex="^(focus|productivity|presence)$"),
+    metric: str = Query(default="focus", pattern="^(focus|productivity|presence)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager)
 ):

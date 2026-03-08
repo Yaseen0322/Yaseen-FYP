@@ -8,6 +8,10 @@ import Employees from './pages/Employees';
 import EmployeeDetail from './pages/EmployeeDetail';
 import DomainRules from './pages/DomainRules';
 import Departments from './pages/Departments';
+import Alerts from './pages/Alerts';
+import DepartmentAnalytics from './pages/DepartmentAnalytics';
+import Integrations from './pages/Integrations';
+import MLClassifications from './pages/MLClassifications';
 
 function App() {
   const { isLoggedIn, checkAuth, isLoading } = useAuthStore();
@@ -41,6 +45,10 @@ function App() {
         <Route path="employees/:id" element={<EmployeeDetail />} />
         <Route path="domain-rules" element={<DomainRules />} />
         <Route path="departments" element={<Departments />} />
+        <Route path="alerts" element={<Alerts />} />
+        <Route path="department-analytics" element={<DepartmentAnalytics />} />
+        <Route path="integrations" element={<Integrations />} />
+        <Route path="ml-classifications" element={<MLClassifications />} />
       </Route>
     </Routes>
   );

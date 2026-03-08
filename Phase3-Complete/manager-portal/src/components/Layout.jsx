@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 
 const navItems = [
@@ -7,6 +7,10 @@ const navItems = [
   { path: '/employees', label: 'Employees', icon: '👥' },
   { path: '/departments', label: 'Departments', icon: '🏢' },
   { path: '/domain-rules', label: 'Domain Rules', icon: '🌐' },
+  { path: '/alerts', label: 'Alerts', icon: '🚨' },
+  { path: '/department-analytics', label: 'Dept Analytics', icon: '📈' },
+  { path: '/ml-classifications', label: 'ML Review', icon: '🤖' },
+  { path: '/integrations', label: 'Integrations', icon: '🔗' },
 ];
 
 function Layout() {

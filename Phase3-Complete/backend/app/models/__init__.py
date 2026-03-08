@@ -6,3 +6,5 @@ from .activity import AppUsage, IdleInterval
 from .presence import PresenceInterval
 from .browser_usage import BrowserUsage, DomainRule
 from .daily_summary import DailySummary
+from .alerts import AlertRule, Alert, DepartmentSummary
+from .integrations import Integration, SSOProvider, MLClassification

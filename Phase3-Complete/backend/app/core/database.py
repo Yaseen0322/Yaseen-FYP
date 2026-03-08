@@ -36,5 +36,7 @@ def init_db():
     """
     Initialize database tables
     """
-    from app.models import user, organization, activity, presence, browser_usage
+    # Import the models package so all SQLAlchemy model classes are registered
+    # on Base.metadata before create_all runs.
+    import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

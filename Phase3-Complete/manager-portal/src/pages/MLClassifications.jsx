@@ -5,6 +5,8 @@ function MLClassifications() {
   const [classifications, setClassifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
+  const [draftLabels, setDraftLabels] = useState({});
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -12,40 +14,42 @@ function MLClassifications() {
 
   const loadData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await api.get(`/ml/classifications?status=${filter}`);
       setClassifications(response.data);
     } catch (error) {
-      console.error('Failed to load classifications:', error);
-      // Mock data for demonstration
-      setClassifications([
-        { id: 1, classification_type: 'domain', input_value: 'example.com', predicted_category: 'Other', predicted_label: 'neutral', confidence: 50, is_approved: false },
-        { id: 2, classification_type: 'app', input_value: 'Custom App', predicted_category: 'Other', predicted_label: 'neutral', confidence: 45, is_approved: false },
-      ]);
+      const message = error.response?.data?.detail || 'Failed to load classifications';
+      console.error(message, error);
+      setClassifications([]);
+      setError(message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleApprove = async (id, newLabel = null) => {
+  const handleApprove = async (id) => {
+    setError(null);
+    const selected = draftLabels[id];
     try {
-      await api.post(`/ml/classifications/${id}/approve`, { label: newLabel });
-      loadData();
+      await api.post(`/ml/classifications/${id}/approve`, { label: selected || null });
+      await loadData();
     } catch (error) {
-      // Demo mode - just update local state
-      setClassifications(prev => prev.map(c => 
-        c.id === id ? { ...c, is_approved: true, predicted_label: newLabel || c.predicted_label } : c
-      ));
+      const message = error.response?.data?.detail || 'Failed to approve classification';
+      console.error(message, error);
+      setError(message);
     }
   };
 
   const handleReject = async (id) => {
+    setError(null);
     try {
       await api.delete(`/ml/classifications/${id}`);
-      loadData();
+      await loadData();
     } catch (error) {
-      // Demo mode
-      setClassifications(prev => prev.filter(c => c.id !== id));
+      const message = error.response?.data?.detail || 'Failed to delete classification';
+      console.error(message, error);
+      setError(message);
     }
   };
 
@@ -86,6 +90,12 @@ function MLClassifications() {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-700">
+          {error}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2">
@@ -157,8 +167,10 @@ function MLClassifications() {
                       <div className="flex items-center gap-2">
                         <select
                           className="text-sm border border-slate-200 rounded px-2 py-1"
-                          defaultValue={item.predicted_label}
-                          onChange={(e) => handleApprove(item.id, e.target.value)}
+                          value={draftLabels[item.id] || item.predicted_label || 'neutral'}
+                          onChange={(e) =>
+                            setDraftLabels((prev) => ({ ...prev, [item.id]: e.target.value }))
+                          }
                         >
                           <option value="productive">Productive</option>
                           <option value="neutral">Neutral</option>
@@ -167,6 +179,7 @@ function MLClassifications() {
                         <button
                           onClick={() => handleApprove(item.id)}
                           className="text-emerald-600 hover:text-emerald-700 text-sm font-medium"
+                          title="Approve selected label"
                         >
                           ✓
                         </button>

@@ -14,11 +14,32 @@ from app.models.presence import PresenceInterval
 from app.models.browser_usage import BrowserUsage
 from app.models.daily_summary import DailySummary
 from app.schemas.reports import (
-    DailySummaryResponse, TimelineResponse, TimelineBlock,
+    TimelineResponse, TimelineBlock,
     AppUsageSummary, DomainUsageSummary, WeeklySummary
 )
 
 router = APIRouter()
+
+
+def _build_summary_payload(user_id: int, target_date: date, summary: DailySummary):
+    """
+    Normalize precomputed daily summary to the same response contract
+    used by on-the-fly summary generation.
+    """
+    return {
+        "user_id": user_id,
+        "date": target_date.isoformat(),
+        "focus_sec": summary.focus_sec or 0,
+        "idle_sec": summary.idle_sec or 0,
+        "present_sec": summary.present_sec or 0,
+        "absent_sec": summary.absent_sec or 0,
+        "camera_off_sec": summary.camera_off_sec or 0,
+        "productive_sec": summary.productive_sec or 0,
+        "unproductive_sec": summary.unproductive_sec or 0,
+        "neutral_sec": summary.neutral_sec or 0,
+        "top_apps": summary.top_apps_json or [],
+        "top_domains": summary.top_domains_json or []
+    }
 
 
 @router.get("/summary")
@@ -40,7 +61,7 @@ async def get_my_summary(
     ).first()
     
     if summary:
-        return DailySummaryResponse.model_validate(summary)
+        return _build_summary_payload(current_user.id, target_date, summary)
     
     # Compute summary on-the-fly
     start_dt = datetime.combine(target_date, datetime.min.time())
