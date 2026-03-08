@@ -117,6 +117,10 @@ class ActivityTracker {
             trackingSince: this.currentAppStart
         };
     }
+
+    setStoreWindowTitle(enabled) {
+        this.storeWindowTitle = !!enabled;
+    }
 }
 
 module.exports = { ActivityTracker };

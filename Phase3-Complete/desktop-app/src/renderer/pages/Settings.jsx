@@ -17,7 +17,10 @@ function Settings() {
     try {
       const idleThreshold = await window.electronAPI.getSetting('idleThreshold') || 120;
       const storeWindowTitle = await window.electronAPI.getSetting('storeWindowTitle') || false;
-      const syncInterval = await window.electronAPI.getSetting('syncInterval') || 60;
+      const rawSyncInterval = await window.electronAPI.getSetting('syncInterval');
+      const syncInterval = rawSyncInterval
+        ? (rawSyncInterval > 1000 ? Math.floor(rawSyncInterval / 1000) : rawSyncInterval)
+        : 60;
       setSettings({ idleThreshold, storeWindowTitle, syncInterval });
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -37,6 +40,9 @@ function Settings() {
     try {
       await window.electronAPI.setSetting(key, value);
       setSettings({ ...settings, [key]: value });
+      if (key === 'idleThreshold' || key === 'syncInterval') {
+        await loadTrackingStatus();
+      }
     } catch (error) {
       console.error('Failed to save setting:', error);
     }
@@ -105,7 +111,12 @@ function Settings() {
             <input
               type="number"
               value={settings.idleThreshold}
-              onChange={(e) => handleSettingChange('idleThreshold', parseInt(e.target.value))}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10);
+                if (Number.isFinite(value)) {
+                  handleSettingChange('idleThreshold', value);
+                }
+              }}
               min={30}
               max={600}
               className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-primary-500"
@@ -152,7 +163,12 @@ function Settings() {
             <label className="block text-white mb-2">Sync Interval (seconds)</label>
             <select
               value={settings.syncInterval}
-              onChange={(e) => handleSettingChange('syncInterval', parseInt(e.target.value))}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10);
+                if (Number.isFinite(value)) {
+                  handleSettingChange('syncInterval', value);
+                }
+              }}
               className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-primary-500"
             >
               <option value={30}>Every 30 seconds</option>

@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
+import { useAuthStore } from '../stores/authStore';
 
 function Integrations() {
+  const { user } = useAuthStore();
+  const isAdmin = ['admin', 'super_admin'].includes(user?.role);
   const [integrations, setIntegrations] = useState([]);
   const [ssoProviders, setSsoProviders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('integrations');
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('integration');
@@ -16,10 +20,15 @@ function Integrations() {
   });
 
   useEffect(() => {
+    if (!isAdmin) {
+      setIsLoading(false);
+      return;
+    }
     loadData();
-  }, []);
+  }, [isAdmin]);
 
   const loadData = async () => {
+    setError(null);
     try {
       const [integrationsRes, ssoRes] = await Promise.all([
         api.get('/integrations/'),
@@ -29,6 +38,7 @@ function Integrations() {
       setSsoProviders(ssoRes.data);
     } catch (error) {
       console.error('Failed to load integrations:', error);
+      setError(error.response?.data?.detail || 'Failed to load integrations');
     } finally {
       setIsLoading(false);
     }
@@ -54,7 +64,7 @@ function Integrations() {
       setFormData({ name: '', integration_type: 'slack', provider_type: 'google', config_json: {} });
       loadData();
     } catch (error) {
-      alert('Failed to create');
+      alert(error.response?.data?.detail || 'Failed to create');
     }
   };
 
@@ -108,6 +118,17 @@ function Integrations() {
     );
   }
 
+  if (!isAdmin) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-8">
+        <h1 className="text-2xl font-bold text-slate-800">Integrations</h1>
+        <p className="text-slate-600 mt-2">
+          You need an admin account to manage integrations and SSO providers.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -123,6 +144,12 @@ function Integrations() {
           + Add {activeTab === 'sso' ? 'SSO Provider' : 'Integration'}
         </button>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-700">
+          {error}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-slate-200">

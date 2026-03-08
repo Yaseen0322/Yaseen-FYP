@@ -35,6 +35,22 @@ function apiUrl(path) {
     return `${getApiBaseUrl()}${path}`;
 }
 
+function getSyncIntervalMs() {
+    // `syncInterval` is stored in seconds in settings UI.
+    const raw = store.get('syncInterval', 60);
+    if (!Number.isFinite(raw)) return 60000;
+
+    // Backward compatibility: old value may be stored in milliseconds.
+    if (raw > 1000) {
+        const seconds = Math.max(10, Math.floor(raw / 1000));
+        store.set('syncInterval', seconds);
+        return seconds * 1000;
+    }
+
+    const seconds = Math.max(10, Math.floor(raw));
+    return seconds * 1000;
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
@@ -127,7 +143,9 @@ function initializeTracking() {
     localStorage = new LocalStorage();
     
     // Initialize activity tracker
-    activityTracker = new ActivityTracker(localStorage);
+    activityTracker = new ActivityTracker(localStorage, {
+        storeWindowTitle: store.get('storeWindowTitle', false)
+    });
     activityTracker.start();
     
     // Initialize idle detector
@@ -155,7 +173,7 @@ function initializeTracking() {
     if (authToken) {
         dataSync = new DataSync(localStorage, authToken, {
             baseUrl: getApiBaseUrl(),
-            syncInterval: store.get('syncInterval', 60000)
+            syncInterval: getSyncIntervalMs()
         });
         dataSync.start();
     }
@@ -179,7 +197,7 @@ function setupIPC() {
             if (dataSync) dataSync.stop();
             dataSync = new DataSync(localStorage, access_token, {
                 baseUrl: getApiBaseUrl(),
-                syncInterval: store.get('syncInterval', 60000)
+                syncInterval: getSyncIntervalMs()
             });
             dataSync.start();
             
@@ -318,6 +336,20 @@ function setupIPC() {
 
     ipcMain.handle('settings:set', (event, key, value) => {
         store.set(key, value);
+
+        // Apply runtime settings without requiring app restart.
+        if (key === 'idleThreshold' && idleDetector) {
+            idleDetector.setIdleThreshold(value);
+        }
+
+        if (key === 'storeWindowTitle' && activityTracker) {
+            activityTracker.setStoreWindowTitle(value);
+        }
+
+        if (key === 'syncInterval' && dataSync) {
+            dataSync.setSyncInterval(getSyncIntervalMs());
+        }
+
         return { success: true };
     });
 }

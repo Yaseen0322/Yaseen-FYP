@@ -10,11 +10,15 @@ const navItems = [
   { path: '/alerts', label: 'Alerts', icon: '🚨' },
   { path: '/department-analytics', label: 'Dept Analytics', icon: '📈' },
   { path: '/ml-classifications', label: 'ML Review', icon: '🤖' },
-  { path: '/integrations', label: 'Integrations', icon: '🔗' },
+  { path: '/integrations', label: 'Integrations', icon: '🔗', requiredRoles: ['admin', 'super_admin'] },
 ];
 
 function Layout() {
   const { user, logout } = useAuthStore();
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.requiredRoles) return true;
+    return item.requiredRoles.includes(user?.role);
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -30,7 +34,7 @@ function Layout() {
 
             {/* Nav Links */}
             <div className="hidden md:flex items-center space-x-1">
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <NavLink
                   key={item.path}
                   to={item.path}

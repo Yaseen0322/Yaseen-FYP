@@ -192,6 +192,12 @@ class DataSync {
     updateToken(newToken) {
         this.authToken = newToken;
     }
+
+    setSyncInterval(intervalMs) {
+        if (!Number.isFinite(intervalMs)) return;
+        const normalized = Math.max(10000, Math.floor(intervalMs));
+        this.syncInterval = normalized;
+    }
 }
 
 module.exports = { DataSync };

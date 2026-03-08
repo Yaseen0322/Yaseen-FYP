@@ -163,6 +163,12 @@ class IdleDetector {
             idleThreshold: this.idleThreshold
         };
     }
+
+    setIdleThreshold(seconds) {
+        if (!Number.isFinite(seconds)) return;
+        const normalized = Math.max(30, Math.min(600, Math.floor(seconds)));
+        this.idleThreshold = normalized;
+    }
 }
 
 module.exports = { IdleDetector };
