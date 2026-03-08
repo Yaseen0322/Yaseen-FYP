@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore';
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, retryDeviceRegistration, isLoading, error, clearError, needsDeviceRegistration } = useAuthStore();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,6 +40,17 @@ function Login() {
               <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
                 {error}
               </div>
+            )}
+
+            {needsDeviceRegistration && (
+              <button
+                type="button"
+                onClick={retryDeviceRegistration}
+                disabled={isLoading}
+                className="w-full px-4 py-3 rounded-xl border border-amber-400/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Retry Device Setup
+              </button>
             )}
 
             <div>

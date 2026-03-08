@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import api from '../utils/api';
 
+const MANAGER_PORTAL_ROLES = ['manager', 'admin', 'super_admin'];
+
 export const useAuthStore = create((set, get) => ({
   user: null,
   isLoggedIn: false,
@@ -16,7 +18,19 @@ export const useAuthStore = create((set, get) => ({
 
     try {
       const response = await api.get('/auth/me');
-      set({ isLoggedIn: true, user: response.data, isLoading: false });
+      if (!MANAGER_PORTAL_ROLES.includes(response.data?.role)) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        set({
+          isLoggedIn: false,
+          user: null,
+          isLoading: false,
+          error: 'Access denied. Manager/Admin account is required for this portal.'
+        });
+        return;
+      }
+
+      set({ isLoggedIn: true, user: response.data, isLoading: false, error: null });
     } catch (error) {
       localStorage.removeItem('token');
       localStorage.removeItem('refreshToken');
@@ -29,11 +43,18 @@ export const useAuthStore = create((set, get) => ({
     try {
       const response = await api.post('/auth/login', { email, password });
       const { access_token, refresh_token, user } = response.data;
-      
+      if (!MANAGER_PORTAL_ROLES.includes(user?.role)) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        const errorMsg = 'Access denied. Manager/Admin account is required for this portal.';
+        set({ isLoading: false, error: errorMsg, isLoggedIn: false, user: null });
+        return { success: false, error: errorMsg };
+      }
+
       localStorage.setItem('token', access_token);
       localStorage.setItem('refreshToken', refresh_token);
       
-      set({ isLoggedIn: true, user, isLoading: false });
+      set({ isLoggedIn: true, user, isLoading: false, error: null });
       return { success: true };
     } catch (error) {
       const errorMsg = error.response?.data?.detail || 'Login failed';
