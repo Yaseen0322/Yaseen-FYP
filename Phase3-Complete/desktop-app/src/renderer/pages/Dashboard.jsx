@@ -5,24 +5,41 @@ function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [trackingStatus, setTrackingStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadData(true);
     loadTrackingStatus();
     
-    // Refresh every minute
-    const interval = setInterval(loadData, 60000);
-    return () => clearInterval(interval);
+    // Keep dashboard responsive to live local tracking, not only backend sync.
+    const interval = setInterval(() => loadData(), 3000);
+    const unsubscribeTracking = window.electronAPI.onTrackingUpdate(() => {
+      loadData();
+      loadTrackingStatus();
+    });
+    const unsubscribe = window.electronAPI.onSyncComplete(() => {
+      loadData();
+      loadTrackingStatus();
+    });
+    return () => {
+      clearInterval(interval);
+      if (typeof unsubscribeTracking === 'function') unsubscribeTracking();
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (initial = false) => {
     try {
+      if (!initial) setIsRefreshing(true);
       const data = await window.electronAPI.getTodaySummary();
       setSummary(data);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Failed to load summary:', error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -35,10 +52,24 @@ function Dashboard() {
     }
   };
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await window.electronAPI.syncNow();
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+    } finally {
+      await loadData();
+      await loadTrackingStatus();
+      setIsRefreshing(false);
+    }
+  };
+
   const formatTime = (seconds) => {
-    if (!seconds) return '0m';
+    if (!seconds || seconds < 0) return '0m';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours === 0 && minutes === 0 && seconds > 0) return '<1m';
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
   };
@@ -70,8 +101,20 @@ function Dashboard() {
         <div>
           <h1 className="text-3xl font-display font-bold text-white">Dashboard</h1>
           <p className="text-white/40 mt-1">Your activity summary for today</p>
+          {lastUpdated && (
+            <p className="text-white/30 text-xs mt-1">
+              Updated: {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-50"
+          >
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
           <span className={trackingStatus?.activityTracking ? 'status-online' : 'status-offline'}></span>
           <span className="text-sm text-white/60">
             {trackingStatus?.activityTracking ? 'Tracking Active' : 'Tracking Paused'}
@@ -201,7 +244,7 @@ function Dashboard() {
                     <div className="mt-1 h-2 bg-white/10 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-primary-500 to-accent-500 rounded-full"
-                        style={{ width: `${(app.duration_sec / summary.focus_sec) * 100}%` }}
+                        style={{ width: `${Math.min(100, (app.duration_sec / Math.max(summary.focus_sec || 1, 1)) * 100)}%` }}
                       ></div>
                     </div>
                   </div>

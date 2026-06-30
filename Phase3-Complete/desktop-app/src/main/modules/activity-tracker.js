@@ -9,6 +9,7 @@ class ActivityTracker {
     constructor(localStorage, options = {}) {
         this.localStorage = localStorage;
         this.interval = options.interval || 2000; // Check every 2 seconds
+        this.chunkFlushInterval = options.chunkFlushInterval || 10; // Persist long-running apps every 10 seconds
         this.storeWindowTitle = options.storeWindowTitle || false;
         
         this.isRunning = false;
@@ -17,6 +18,7 @@ class ActivityTracker {
         
         this.currentApp = null;
         this.currentAppStart = null;
+        this.currentWindowTitle = null;
     }
 
     start() {
@@ -64,15 +66,18 @@ class ActivityTracker {
                 
                 if (window) {
                     const appName = window.owner?.name || 'Unknown';
+                    const windowTitle = this.storeWindowTitle ? window.title : null;
                     
                     // Check if app changed
-                    if (this.currentApp !== appName) {
+                    if (this.currentApp !== appName || this.currentWindowTitle !== windowTitle) {
                         this.finalizeCurrentApp();
                         
                         // Start new app tracking
                         this.currentApp = appName;
                         this.currentAppStart = new Date();
-                        this.currentWindowTitle = this.storeWindowTitle ? window.title : null;
+                        this.currentWindowTitle = windowTitle;
+                    } else {
+                        this.flushCurrentAppChunk();
                     }
                 }
             } catch (error) {
@@ -109,11 +114,33 @@ class ActivityTracker {
         }
     }
 
+    flushCurrentAppChunk(force = false) {
+        if (!this.currentApp || !this.currentAppStart) return;
+
+        const endTime = new Date();
+        const durationSec = Math.floor((endTime - this.currentAppStart) / 1000);
+        if (durationSec < (force ? 1 : this.chunkFlushInterval)) return;
+
+        this.localStorage.saveAppUsage({
+            app_name: this.currentApp,
+            window_title: this.currentWindowTitle,
+            start_ts: this.currentAppStart.toISOString(),
+            end_ts: endTime.toISOString(),
+            duration_sec: durationSec
+        });
+        this.currentAppStart = endTime;
+    }
+
+    flushOpenInterval() {
+        this.flushCurrentAppChunk(true);
+    }
+
     getStats() {
         return {
             isRunning: this.isRunning,
             isPaused: this.isPaused,
             currentApp: this.currentApp,
+            currentWindowTitle: this.currentWindowTitle,
             trackingSince: this.currentAppStart
         };
     }

@@ -2,29 +2,47 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../utils/api';
+import PaginationControls from '../components/PaginationControls';
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function EmployeeDetail() {
   const { id } = useParams();
   const [summary, setSummary] = useState(null);
   const [timeline, setTimeline] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [timelineOffset, setTimelineOffset] = useState(0);
+  const [timelineLimit] = useState(20);
 
   useEffect(() => {
     loadData();
+  }, [id, selectedDate, timelineOffset]);
+
+  useEffect(() => {
+    setTimelineOffset(0);
   }, [id, selectedDate]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
+      setError('');
       const [summaryRes, timelineRes] = await Promise.all([
         api.get(`/manager/employees/${id}/summary?target_date=${selectedDate}`),
-        api.get(`/manager/employees/${id}/timeline?target_date=${selectedDate}`)
+        api.get(`/manager/employees/${id}/timeline`, {
+          params: { target_date: selectedDate, limit: timelineLimit, offset: timelineOffset }
+        })
       ]);
       setSummary(summaryRes.data);
       setTimeline(timelineRes.data);
     } catch (error) {
-      console.error('Failed to load data:', error);
+      setError(error.response?.data?.detail || 'Failed to load employee details');
     } finally {
       setIsLoading(false);
     }
@@ -57,6 +75,9 @@ function EmployeeDetail() {
     );
   }
 
+  const employeeName = summary?.employee?.name || 'Employee report';
+  const employeeEmail = summary?.employee?.email || 'No employee details available';
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -69,8 +90,8 @@ function EmployeeDetail() {
             ← Back
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">{summary?.employee?.name}</h1>
-            <p className="text-slate-500">{summary?.employee?.email}</p>
+            <h1 className="text-2xl font-bold text-slate-800">{employeeName}</h1>
+            <p className="text-slate-500">{employeeEmail}</p>
           </div>
         </div>
         <input
@@ -82,6 +103,23 @@ function EmployeeDetail() {
       </div>
 
       {/* Stats */}
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="flex items-center justify-between gap-4">
+            <span>{error}</span>
+            <button onClick={loadData} className="font-medium text-rose-700 hover:text-rose-800">
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!error && !summary && (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-slate-500">
+          No summary is available for the selected day.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Focus Time" value={formatTime(summary?.focus_sec)} color="text-emerald-600" />
         <StatCard title="Idle Time" value={formatTime(summary?.idle_sec)} color="text-amber-600" />
@@ -177,7 +215,7 @@ function EmployeeDetail() {
                   <div className="mt-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary-500 rounded-full"
-                      style={{ width: `${(app.duration_sec / summary.focus_sec) * 100}%` }}
+                      style={{ width: `${summary.focus_sec > 0 ? (app.duration_sec / summary.focus_sec) * 100 : 0}%` }}
                     ></div>
                   </div>
                 </div>
@@ -217,9 +255,9 @@ function EmployeeDetail() {
       {/* Timeline */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-800 mb-4">Timeline</h3>
-        {timeline?.blocks?.length > 0 ? (
+        {timeline?.items?.length > 0 ? (
           <div className="space-y-2">
-            {timeline.blocks.slice(0, 20).map((block, index) => (
+            {timeline.items.map((block, index) => (
               <div
                 key={index}
                 className={`flex items-center gap-4 p-3 rounded-lg ${
@@ -233,10 +271,15 @@ function EmployeeDetail() {
                   {block.type === 'present' ? '👤' :
                    block.type === 'absent' ? '🚫' :
                    block.type === 'idle' ? '💤' :
-                   block.type === 'active' ? '💻' : '📷'}
+                   block.type === 'app_usage' ? '💻' :
+                   block.type === 'browser_usage' ? '🌐' : '📷'}
                 </span>
                 <span className="flex-1 capitalize font-medium text-slate-700">
-                  {block.type === 'active' && block.app_name ? `${block.type} • ${block.app_name}` : block.type}
+                  {block.type === 'app_usage' && block.details?.app_name
+                    ? `App usage • ${block.details.app_name}`
+                    : block.type === 'browser_usage' && block.details?.domain
+                    ? `Website • ${block.details.domain}${block.details.label ? ` (${block.details.label})` : ''}`
+                    : block.type.replace('_', ' ')}
                 </span>
                 <span className="text-sm text-slate-500">
                   {new Date(block.start_ts).toLocaleTimeString()} - {new Date(block.end_ts).toLocaleTimeString()}
@@ -250,6 +293,13 @@ function EmployeeDetail() {
         ) : (
           <p className="text-slate-400 text-center py-8">No timeline data</p>
         )}
+        <PaginationControls
+          total={timeline?.total || 0}
+          limit={timelineLimit}
+          offset={timelineOffset}
+          label="timeline entries"
+          onPageChange={setTimelineOffset}
+        />
       </div>
     </div>
   );

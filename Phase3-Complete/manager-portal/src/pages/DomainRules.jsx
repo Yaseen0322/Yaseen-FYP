@@ -4,7 +4,10 @@ import api from '../utils/api';
 function DomainRules() {
   const [rules, setRules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
   const [newRule, setNewRule] = useState({
     domain: '',
     category: '',
@@ -17,24 +20,52 @@ function DomainRules() {
 
   const loadRules = async () => {
     try {
+      setError('');
       const response = await api.get('/manager/domain-rules');
       setRules(response.data);
     } catch (error) {
-      console.error('Failed to load rules:', error);
+      setError(error.response?.data?.detail || 'Failed to load domain rules');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCreate = async (e) => {
+  const resetForm = () => {
+    setNewRule({ domain: '', category: '', label: 'neutral' });
+    setEditingRule(null);
+    setFormError('');
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const openEditModal = (rule) => {
+    setEditingRule(rule);
+    setNewRule({
+      domain: rule.domain || '',
+      category: rule.category || '',
+      label: rule.label || 'neutral'
+    });
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/manager/domain-rules', newRule);
+      setFormError('');
+      if (editingRule) {
+        await api.patch(`/manager/domain-rules/${editingRule.id}`, newRule);
+      } else {
+        await api.post('/manager/domain-rules', newRule);
+      }
       setShowModal(false);
-      setNewRule({ domain: '', category: '', label: 'neutral' });
-      loadRules();
+      resetForm();
+      await loadRules();
     } catch (error) {
-      alert(error.response?.data?.detail || 'Failed to create rule');
+      setFormError(error.response?.data?.detail || 'Failed to save rule');
     }
   };
 
@@ -42,7 +73,7 @@ function DomainRules() {
     if (!confirm('Are you sure you want to delete this rule?')) return;
     try {
       await api.delete(`/manager/domain-rules/${id}`);
-      loadRules();
+      await loadRules();
     } catch (error) {
       alert(error.response?.data?.detail || 'Failed to delete rule');
     }
@@ -76,12 +107,24 @@ function DomainRules() {
           <p className="text-slate-500 mt-1">Classify websites as productive or unproductive</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={openCreateModal}
           className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
         >
           + Add Rule
         </button>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            onClick={loadRules}
+            className="text-sm font-medium text-rose-700 hover:text-rose-800"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Default Rules Info */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -127,6 +170,12 @@ function DomainRules() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
+                      onClick={() => openEditModal(rule)}
+                      className="mr-4 text-primary-600 hover:text-primary-700 text-sm font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
                       onClick={() => handleDelete(rule.id)}
                       className="text-rose-600 hover:text-rose-700 text-sm font-medium"
                     >
@@ -150,8 +199,10 @@ function DomainRules() {
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 animate-fade-in">
-            <h2 className="text-xl font-bold text-slate-800 mb-6">Add Domain Rule</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <h2 className="text-xl font-bold text-slate-800 mb-6">
+              {editingRule ? 'Edit Domain Rule' : 'Add Domain Rule'}
+            </h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Domain</label>
                 <input
@@ -186,10 +237,18 @@ function DomainRules() {
                   <option value="unproductive">Unproductive</option>
                 </select>
               </div>
+              {formError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {formError}
+                </div>
+              )}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    setShowModal(false);
+                    resetForm();
+                  }}
                   className="flex-1 py-2 px-4 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   Cancel
@@ -198,7 +257,7 @@ function DomainRules() {
                   type="submit"
                   className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
                 >
-                  Add Rule
+                  {editingRule ? 'Save Changes' : 'Add Rule'}
                 </button>
               </div>
             </form>

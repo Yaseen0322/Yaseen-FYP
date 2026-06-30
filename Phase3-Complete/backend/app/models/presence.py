@@ -1,7 +1,7 @@
 """
 Presence Model - Webcam-based presence detection intervals
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -16,6 +16,11 @@ class PresenceState(str, enum.Enum):
 
 class PresenceInterval(Base):
     __tablename__ = "presence_intervals"
+    __table_args__ = (
+        Index("ix_presence_intervals_user_time", "user_id", "start_ts", "end_ts"),
+        Index("ix_presence_intervals_user_state_time", "user_id", "state", "start_ts"),
+        Index("ix_presence_intervals_device_time", "device_id", "start_ts", "end_ts"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

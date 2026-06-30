@@ -7,20 +7,25 @@ from sqlalchemy import func
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.dates import utc_today
+from app.core.pagination import build_paginated_response
 from app.core.security import get_current_manager
 from app.models.user import User
 from app.models.activity import AppUsage, IdleInterval
 from app.models.presence import PresenceInterval
 from app.models.browser_usage import BrowserUsage, DomainRule
 from app.schemas.user import UserResponse
-from app.schemas.browser_usage import DomainRuleCreate, DomainRuleResponse
+from app.schemas.browser_usage import DomainRuleCreate, DomainRuleResponse, DomainRuleUpdate
+from app.services.reporting import build_daily_summary_response, build_timeline_blocks
 
 router = APIRouter()
 
 
-@router.get("/employees", response_model=List[UserResponse])
+@router.get("/employees")
 async def list_employees(
     dept_id: Optional[int] = None,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager)
 ):
@@ -35,8 +40,14 @@ async def list_employees(
     if dept_id:
         query = query.filter(User.dept_id == dept_id)
     
-    employees = query.all()
-    return [UserResponse.model_validate(e) for e in employees]
+    total = query.count()
+    employees = query.order_by(User.created_at.desc(), User.id.desc()).offset(offset).limit(limit).all()
+    return build_paginated_response(
+        [UserResponse.model_validate(e).model_dump() for e in employees],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/employees/{employee_id}/summary")
@@ -59,99 +70,13 @@ async def get_employee_summary(
         raise HTTPException(status_code=404, detail="Employee not found")
     
     if target_date is None:
-        target_date = date.today()
+        target_date = utc_today()
     
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
-    
-    # Compute summary
-    app_time = db.query(func.sum(AppUsage.duration_sec)).filter(
-        AppUsage.user_id == employee_id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).scalar() or 0
-    
-    idle_time = db.query(func.sum(IdleInterval.duration_sec)).filter(
-        IdleInterval.user_id == employee_id,
-        IdleInterval.start_ts >= start_dt,
-        IdleInterval.end_ts <= end_dt
-    ).scalar() or 0
-    
-    presence_times = db.query(
-        PresenceInterval.state,
-        func.sum(PresenceInterval.duration_sec)
-    ).filter(
-        PresenceInterval.user_id == employee_id,
-        PresenceInterval.start_ts >= start_dt,
-        PresenceInterval.end_ts <= end_dt
-    ).group_by(PresenceInterval.state).all()
-    
-    present_sec = 0
-    absent_sec = 0
-    camera_off_sec = 0
-    for state, duration in presence_times:
-        if state == "present":
-            present_sec = duration or 0
-        elif state == "absent":
-            absent_sec = duration or 0
-        elif state == "camera_off":
-            camera_off_sec = duration or 0
-    
-    # Productivity
-    productivity = db.query(
-        BrowserUsage.label,
-        func.sum(BrowserUsage.duration_sec)
-    ).filter(
-        BrowserUsage.user_id == employee_id,
-        BrowserUsage.start_ts >= start_dt,
-        BrowserUsage.end_ts <= end_dt
-    ).group_by(BrowserUsage.label).all()
-    
-    productive_sec = 0
-    unproductive_sec = 0
-    for label, duration in productivity:
-        if label == "productive":
-            productive_sec = duration or 0
-        elif label == "unproductive":
-            unproductive_sec = duration or 0
-    
-    # Top apps
-    top_apps = db.query(
-        AppUsage.app_name,
-        func.sum(AppUsage.duration_sec).label('total')
-    ).filter(
-        AppUsage.user_id == employee_id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).group_by(AppUsage.app_name).order_by(
-        func.sum(AppUsage.duration_sec).desc()
-    ).limit(10).all()
-    
-    # Top domains
-    top_domains = db.query(
-        BrowserUsage.domain,
-        BrowserUsage.label,
-        func.sum(BrowserUsage.duration_sec).label('total')
-    ).filter(
-        BrowserUsage.user_id == employee_id,
-        BrowserUsage.start_ts >= start_dt,
-        BrowserUsage.end_ts <= end_dt
-    ).group_by(BrowserUsage.domain, BrowserUsage.label).order_by(
-        func.sum(BrowserUsage.duration_sec).desc()
-    ).limit(10).all()
-    
+    payload = build_daily_summary_response(db, employee_id, target_date)
+
     return {
         "employee": UserResponse.model_validate(employee),
-        "date": target_date.isoformat(),
-        "focus_sec": app_time,
-        "idle_sec": idle_time,
-        "present_sec": present_sec,
-        "absent_sec": absent_sec,
-        "camera_off_sec": camera_off_sec,
-        "productive_sec": productive_sec,
-        "unproductive_sec": unproductive_sec,
-        "top_apps": [{"app_name": a, "duration_sec": d} for a, d in top_apps],
-        "top_domains": [{"domain": d, "label": l, "duration_sec": dur} for d, l, dur in top_domains]
+        **payload,
     }
 
 
@@ -159,6 +84,8 @@ async def get_employee_summary(
 async def get_employee_timeline(
     employee_id: int,
     target_date: Optional[date] = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager)
 ):
@@ -174,65 +101,31 @@ async def get_employee_timeline(
         raise HTTPException(status_code=404, detail="Employee not found")
     
     if target_date is None:
-        target_date = date.today()
+        target_date = utc_today()
     
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
-    
+    raw_blocks = build_timeline_blocks(db, employee_id, target_date)
     blocks = []
+    for block in raw_blocks:
+        entry = {
+            "type": block["type"],
+            "start_ts": block["start_ts"].isoformat(),
+            "end_ts": block["end_ts"].isoformat(),
+            "duration_sec": block["duration_sec"],
+        }
+        if block["details"]:
+            entry["details"] = block["details"]
+        blocks.append(entry)
     
-    # Get presence
-    presence = db.query(PresenceInterval).filter(
-        PresenceInterval.user_id == employee_id,
-        PresenceInterval.start_ts >= start_dt,
-        PresenceInterval.end_ts <= end_dt
-    ).order_by(PresenceInterval.start_ts).all()
-    
-    for p in presence:
-        blocks.append({
-            "type": p.state,
-            "start_ts": p.start_ts.isoformat(),
-            "end_ts": p.end_ts.isoformat(),
-            "duration_sec": p.duration_sec
-        })
-    
-    # Get idle
-    idles = db.query(IdleInterval).filter(
-        IdleInterval.user_id == employee_id,
-        IdleInterval.start_ts >= start_dt,
-        IdleInterval.end_ts <= end_dt
-    ).order_by(IdleInterval.start_ts).all()
-    
-    for i in idles:
-        blocks.append({
-            "type": "idle",
-            "start_ts": i.start_ts.isoformat(),
-            "end_ts": i.end_ts.isoformat(),
-            "duration_sec": i.duration_sec
-        })
+    total = len(blocks)
+    paginated_blocks = blocks[offset: offset + limit]
 
-    # Get active app intervals so timeline is useful even when presence data is sparse.
-    app_usages = db.query(AppUsage).filter(
-        AppUsage.user_id == employee_id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).order_by(AppUsage.start_ts).all()
-
-    for a in app_usages:
-        blocks.append({
-            "type": "active",
-            "app_name": a.app_name,
-            "start_ts": a.start_ts.isoformat(),
-            "end_ts": a.end_ts.isoformat(),
-            "duration_sec": a.duration_sec
-        })
-    
-    blocks.sort(key=lambda x: x["start_ts"])
-    
     return {
         "employee_id": employee_id,
         "date": target_date.isoformat(),
-        "blocks": blocks
+        "items": paginated_blocks,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -247,10 +140,7 @@ async def get_team_summary(
     Get aggregated team summary
     """
     if target_date is None:
-        target_date = date.today()
-    
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
+        target_date = utc_today()
     
     # Get employees query
     emp_query = db.query(User.id).filter(
@@ -266,25 +156,14 @@ async def get_team_summary(
     if not employee_ids:
         return {"date": target_date.isoformat(), "employee_count": 0}
     
-    # Aggregate stats
-    total_focus = db.query(func.sum(AppUsage.duration_sec)).filter(
-        AppUsage.user_id.in_(employee_ids),
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).scalar() or 0
-    
-    total_idle = db.query(func.sum(IdleInterval.duration_sec)).filter(
-        IdleInterval.user_id.in_(employee_ids),
-        IdleInterval.start_ts >= start_dt,
-        IdleInterval.end_ts <= end_dt
-    ).scalar() or 0
-    
-    total_present = db.query(func.sum(PresenceInterval.duration_sec)).filter(
-        PresenceInterval.user_id.in_(employee_ids),
-        PresenceInterval.state == "present",
-        PresenceInterval.start_ts >= start_dt,
-        PresenceInterval.end_ts <= end_dt
-    ).scalar() or 0
+    total_focus = 0
+    total_idle = 0
+    total_present = 0
+    for employee_id in employee_ids:
+        payload = build_daily_summary_response(db, employee_id, target_date)
+        total_focus += payload["focus_sec"]
+        total_idle += payload["idle_sec"]
+        total_present += payload["present_sec"]
     
     return {
         "date": target_date.isoformat(),
@@ -323,9 +202,17 @@ async def create_domain_rule(
     """
     Create domain classification rule
     """
+    normalized_domain = rule_data.domain.strip().lower()
+    existing = db.query(DomainRule).filter(
+        DomainRule.org_id == current_user.org_id,
+        DomainRule.domain == normalized_domain
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A rule for that domain already exists")
+
     rule = DomainRule(
         org_id=current_user.org_id,
-        domain=rule_data.domain,
+        domain=normalized_domain,
         category=rule_data.category,
         label=rule_data.label,
         dept_overrides_json=rule_data.dept_overrides_json
@@ -334,6 +221,44 @@ async def create_domain_rule(
     db.commit()
     db.refresh(rule)
     
+    return DomainRuleResponse.model_validate(rule)
+
+
+@router.patch("/domain-rules/{rule_id}", response_model=DomainRuleResponse)
+async def update_domain_rule(
+    rule_id: int,
+    rule_data: DomainRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_manager)
+):
+    """
+    Update domain classification rule
+    """
+    rule = db.query(DomainRule).filter(
+        DomainRule.id == rule_id,
+        DomainRule.org_id == current_user.org_id
+    ).first()
+
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    update_data = rule_data.model_dump(exclude_unset=True)
+    if "domain" in update_data and update_data["domain"]:
+        normalized_domain = update_data["domain"].strip().lower()
+        existing = db.query(DomainRule).filter(
+            DomainRule.org_id == current_user.org_id,
+            DomainRule.domain == normalized_domain,
+            DomainRule.id != rule.id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="A rule for that domain already exists")
+        update_data["domain"] = normalized_domain
+
+    for field, value in update_data.items():
+        setattr(rule, field, value)
+
+    db.commit()
+    db.refresh(rule)
     return DomainRuleResponse.model_validate(rule)
 
 

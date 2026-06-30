@@ -1,8 +1,11 @@
 """
 Security utilities - JWT, password hashing, RBAC
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
+import base64
+import hashlib
+import secrets
 from jose import JWTError, jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -29,9 +32,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """Create JWT access token"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -41,10 +44,40 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """Create JWT refresh token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
+
+
+def create_oauth_state(provider: str, org_id: int, redirect_uri: str, code_verifier: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.OAUTH_STATE_EXPIRE_MINUTES)
+    payload = {
+        "provider": provider,
+        "org_id": org_id,
+        "redirect_uri": redirect_uri,
+        "code_verifier": code_verifier,
+        "nonce": secrets.token_urlsafe(16),
+        "exp": expire,
+        "type": "oauth_state",
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_oauth_state(token: str) -> Optional[dict]:
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "oauth_state":
+        return None
+    return payload
+
+
+def generate_pkce_verifier() -> str:
+    return secrets.token_urlsafe(64)
+
+
+def generate_pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
 
 def decode_token(token: str) -> Optional[dict]:

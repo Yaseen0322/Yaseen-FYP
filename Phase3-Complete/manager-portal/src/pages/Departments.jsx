@@ -4,7 +4,10 @@ import api from '../utils/api';
 function Departments() {
   const [departments, setDepartments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingDept, setEditingDept] = useState(null);
   const [newDept, setNewDept] = useState({
     name: '',
     description: ''
@@ -16,24 +19,51 @@ function Departments() {
 
   const loadDepartments = async () => {
     try {
+      setError('');
       const response = await api.get('/org/departments');
       setDepartments(response.data);
     } catch (error) {
-      console.error('Failed to load departments:', error);
+      setError(error.response?.data?.detail || 'Failed to load departments');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCreate = async (e) => {
+  const resetForm = () => {
+    setNewDept({ name: '', description: '' });
+    setEditingDept(null);
+    setFormError('');
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const openEditModal = (department) => {
+    setEditingDept(department);
+    setNewDept({
+      name: department.name || '',
+      description: department.description || ''
+    });
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/org/departments', newDept);
+      setFormError('');
+      if (editingDept) {
+        await api.patch(`/org/departments/${editingDept.id}`, newDept);
+      } else {
+        await api.post('/org/departments', newDept);
+      }
       setShowModal(false);
-      setNewDept({ name: '', description: '' });
-      loadDepartments();
+      resetForm();
+      await loadDepartments();
     } catch (error) {
-      alert(error.response?.data?.detail || 'Failed to create department');
+      setFormError(error.response?.data?.detail || 'Failed to save department');
     }
   };
 
@@ -41,7 +71,7 @@ function Departments() {
     if (!confirm('Are you sure you want to delete this department?')) return;
     try {
       await api.delete(`/org/departments/${id}`);
-      loadDepartments();
+      await loadDepartments();
     } catch (error) {
       alert(error.response?.data?.detail || 'Failed to delete department');
     }
@@ -64,12 +94,24 @@ function Departments() {
           <p className="text-slate-500 mt-1">Organize employees into departments</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={openCreateModal}
           className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors"
         >
           + Add Department
         </button>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            onClick={loadDepartments}
+            className="text-sm font-medium text-rose-700 hover:text-rose-800"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Departments Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -88,6 +130,12 @@ function Departments() {
               <span className="text-sm text-slate-500">
                 Created {new Date(dept.created_at).toLocaleDateString()}
               </span>
+              <button
+                onClick={() => openEditModal(dept)}
+                className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Edit
+              </button>
               <button
                 onClick={() => handleDelete(dept.id)}
                 className="text-sm text-rose-600 hover:text-rose-700 font-medium"
@@ -108,8 +156,10 @@ function Departments() {
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 animate-fade-in">
-            <h2 className="text-xl font-bold text-slate-800 mb-6">Add Department</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <h2 className="text-xl font-bold text-slate-800 mb-6">
+              {editingDept ? 'Edit Department' : 'Add Department'}
+            </h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
                 <input
@@ -131,10 +181,18 @@ function Departments() {
                   rows={3}
                 />
               </div>
+              {formError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {formError}
+                </div>
+              )}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    setShowModal(false);
+                    resetForm();
+                  }}
                   className="flex-1 py-2 px-4 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   Cancel
@@ -143,7 +201,7 @@ function Departments() {
                   type="submit"
                   className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
                 >
-                  Add Department
+                  {editingDept ? 'Save Changes' : 'Add Department'}
                 </button>
               </div>
             </form>

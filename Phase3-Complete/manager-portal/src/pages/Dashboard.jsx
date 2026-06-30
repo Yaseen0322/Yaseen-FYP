@@ -19,7 +19,7 @@ function Dashboard() {
         api.get('/manager/employees')
       ]);
       setTeamSummary(summaryRes.data);
-      setEmployees(employeesRes.data);
+      setEmployees(Array.isArray(employeesRes.data) ? employeesRes.data : employeesRes.data.items || []);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {

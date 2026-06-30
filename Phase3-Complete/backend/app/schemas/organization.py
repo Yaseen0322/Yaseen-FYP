@@ -34,6 +34,11 @@ class DepartmentCreate(DepartmentBase):
     pass
 
 
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class DepartmentResponse(DepartmentBase):
     id: int
     org_id: int

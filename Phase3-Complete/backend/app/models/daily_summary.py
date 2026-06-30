@@ -1,7 +1,7 @@
 """
 Daily Summary Model - Pre-computed daily aggregates
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Date
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Date, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -9,11 +9,14 @@ from app.core.database import Base
 
 class DailySummary(Base):
     __tablename__ = "daily_summaries"
+    __table_args__ = (
+        Index("ix_daily_summaries_user_date", "user_id", "date"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Date (in org timezone)
+    # Date bucket currently follows the UTC ISO day used by the client apps.
     date = Column(Date, nullable=False, index=True)
     
     # Time summaries (in seconds)

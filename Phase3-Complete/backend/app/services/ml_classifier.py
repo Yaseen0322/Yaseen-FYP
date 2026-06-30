@@ -7,48 +7,50 @@ from sqlalchemy.orm import Session
 from app.models.browser_usage import DomainRule
 from app.models.integrations import MLClassification
 
-# Pre-trained categories based on common patterns
-DOMAIN_PATTERNS = {
-    # Development & Work
-    "productive": {
+DOMAIN_PATTERNS = [
+    {
+        "label": "productive",
+        "category": "Development/Work",
         "keywords": [
-            "github", "gitlab", "bitbucket", "stackoverflow", "docs", 
-            "documentation", "api", "dev", "developer", "cloud", 
+            "github", "gitlab", "bitbucket", "stackoverflow", "docs",
+            "documentation", "api", "dev", "developer", "cloud",
             "aws", "azure", "gcp", "jira", "confluence", "notion",
             "figma", "sketch", "linear", "asana", "trello", "monday",
-            "slack", "teams", "zoom", "meet", "calendar"
+            "slack", "teams", "zoom", "meet", "calendar",
         ],
         "domains": [
             "github.com", "gitlab.com", "stackoverflow.com", "docs.google.com",
             "notion.so", "figma.com", "linear.app", "asana.com", "trello.com",
-            "slack.com", "teams.microsoft.com", "zoom.us"
-        ]
+            "slack.com", "teams.microsoft.com", "zoom.us",
+        ],
     },
-    # Entertainment & Social
-    "unproductive": {
+    {
+        "label": "productive",
+        "category": "Learning",
+        "keywords": [
+            "learn", "course", "tutorial", "education", "training",
+            "academy", "university", "school", "study", "lecture",
+        ],
+        "domains": [
+            "coursera.org", "udemy.com", "edx.org", "pluralsight.com",
+            "linkedin.com/learning", "skillshare.com", "khan.academy",
+        ],
+    },
+    {
+        "label": "unproductive",
+        "category": "Social/Entertainment",
         "keywords": [
             "facebook", "twitter", "instagram", "tiktok", "snapchat",
             "youtube", "netflix", "hulu", "disney", "twitch", "reddit",
-            "game", "gaming", "play", "bet", "casino", "porn", "xxx"
+            "game", "gaming", "play", "bet", "casino", "porn", "xxx",
         ],
         "domains": [
             "facebook.com", "twitter.com", "instagram.com", "tiktok.com",
             "youtube.com", "netflix.com", "reddit.com", "twitch.tv",
-            "9gag.com", "buzzfeed.com"
-        ]
-    },
-    # Learning & Education
-    "productive": {
-        "keywords": [
-            "learn", "course", "tutorial", "education", "training",
-            "academy", "university", "school", "study", "lecture"
+            "9gag.com", "buzzfeed.com",
         ],
-        "domains": [
-            "coursera.org", "udemy.com", "edx.org", "pluralsight.com",
-            "linkedin.com/learning", "skillshare.com", "khan.academy"
-        ]
-    }
-}
+    },
+]
 
 APP_PATTERNS = {
     "productive": {
@@ -68,6 +70,43 @@ APP_PATTERNS = {
 }
 
 
+def classify_domain_by_patterns(domain: str) -> Tuple[str, str, int]:
+    """
+    Pure pattern-based domain classification for read-only reporting paths.
+    """
+    normalized_domain = domain.strip().lower()
+
+    for pattern in DOMAIN_PATTERNS:
+        if any(candidate in normalized_domain for candidate in pattern.get("domains", [])):
+            return (pattern["category"], pattern["label"], 95)
+
+    for pattern in DOMAIN_PATTERNS:
+        keywords = pattern.get("keywords", [])
+        matched_keywords = [keyword for keyword in keywords if keyword in normalized_domain]
+        if matched_keywords:
+            confidence = min(90, 50 + len(matched_keywords) * 10)
+            return (pattern["category"], pattern["label"], confidence)
+
+    return ("Other", "neutral", 50)
+
+
+def classify_app_by_patterns(app_name: str) -> Tuple[str, str, int]:
+    """
+    Pure pattern-based app classification for summary calculations.
+    """
+    app_lower = app_name.strip().lower()
+
+    productive_keywords = APP_PATTERNS["productive"]["keywords"]
+    if any(keyword in app_lower for keyword in productive_keywords):
+        return ("Development", "productive", 85)
+
+    unproductive_keywords = APP_PATTERNS["unproductive"]["keywords"]
+    if any(keyword in app_lower for keyword in unproductive_keywords):
+        return ("Entertainment", "unproductive", 85)
+
+    return ("Other", "neutral", 50)
+
+
 class MLClassifier:
     def __init__(self, db: Session):
         self.db = db
@@ -83,10 +122,10 @@ class MLClassifier:
         Classify a domain as productive/unproductive/neutral
         Returns: (category, label, confidence)
         """
-        domain_lower = domain.lower()
+        normalized_domain = domain.strip().lower()
         
         # Check cache first
-        cache_key = f"domain:{domain_lower}:{org_id}"
+        cache_key = f"domain:{normalized_domain}:{org_id}"
         if cache_key in self.cache:
             return self.cache[cache_key]
         
@@ -105,7 +144,7 @@ class MLClassifier:
         ml_result = self.db.query(MLClassification).filter(
             MLClassification.org_id == org_id,
             MLClassification.classification_type == "domain",
-            MLClassification.input_value == domain,
+            MLClassification.input_value == normalized_domain,
             MLClassification.is_approved == True
         ).first()
         
@@ -115,10 +154,10 @@ class MLClassifier:
             return result
         
         # Run ML classification
-        category, label, confidence = self._ml_classify_domain(domain_lower)
+        category, label, confidence = self._ml_classify_domain(normalized_domain)
         
         # Store result for future approval
-        self._store_classification("domain", domain, category, label, confidence, org_id)
+        self._store_classification("domain", normalized_domain, category, label, confidence, org_id)
         
         result = (category, label, confidence)
         self.cache[cache_key] = result
@@ -129,26 +168,7 @@ class MLClassifier:
         ML-based domain classification using pattern matching
         In production, this could use a trained model
         """
-        # Check direct domain matches
-        for label, patterns in DOMAIN_PATTERNS.items():
-            if label == "productive":
-                if any(d in domain for d in patterns.get("domains", [])):
-                    return ("Work", "productive", 95)
-            elif label == "unproductive":
-                if any(d in domain for d in patterns.get("domains", [])):
-                    return ("Entertainment", "unproductive", 95)
-        
-        # Check keyword matches
-        for label, patterns in DOMAIN_PATTERNS.items():
-            keywords = patterns.get("keywords", [])
-            matched_keywords = [k for k in keywords if k in domain]
-            if matched_keywords:
-                confidence = min(90, 50 + len(matched_keywords) * 10)
-                category = "Work" if label == "productive" else "Entertainment"
-                return (category, label, confidence)
-        
-        # Default to neutral
-        return ("Other", "neutral", 50)
+        return classify_domain_by_patterns(domain)
     
     def classify_app(
         self,
@@ -190,18 +210,7 @@ class MLClassifier:
     
     def _ml_classify_app(self, app_name: str) -> Tuple[str, str, int]:
         """ML-based app classification"""
-        # Check productive keywords
-        productive_keywords = APP_PATTERNS["productive"]["keywords"]
-        if any(k in app_name for k in productive_keywords):
-            return ("Development", "productive", 85)
-        
-        # Check unproductive keywords
-        unproductive_keywords = APP_PATTERNS["unproductive"]["keywords"]
-        if any(k in app_name for k in unproductive_keywords):
-            return ("Entertainment", "unproductive", 85)
-        
-        # Default to neutral
-        return ("Other", "neutral", 50)
+        return classify_app_by_patterns(app_name)
     
     def _store_classification(
         self,
@@ -213,24 +222,24 @@ class MLClassifier:
         org_id: int
     ):
         """Store ML classification for approval"""
+        normalized_input = input_value.strip().lower()
         existing = self.db.query(MLClassification).filter(
             MLClassification.org_id == org_id,
             MLClassification.classification_type == classification_type,
-            MLClassification.input_value == input_value
+            MLClassification.input_value == normalized_input
         ).first()
         
         if not existing:
             classification = MLClassification(
                 org_id=org_id,
                 classification_type=classification_type,
-                input_value=input_value,
+                input_value=normalized_input,
                 predicted_category=category,
                 predicted_label=label,
                 confidence=confidence,
                 is_approved=False
             )
             self.db.add(classification)
-            self.db.commit()
     
     def get_pending_classifications(self, org_id: int) -> List[MLClassification]:
         """Get classifications pending approval"""

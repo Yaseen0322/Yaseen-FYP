@@ -5,7 +5,7 @@ function Settings() {
   const [settings, setSettings] = useState({
     idleThreshold: 120,
     storeWindowTitle: false,
-    syncInterval: 60
+    syncInterval: 30
   });
 
   useEffect(() => {
@@ -20,7 +20,7 @@ function Settings() {
       const rawSyncInterval = await window.electronAPI.getSetting('syncInterval');
       const syncInterval = rawSyncInterval
         ? (rawSyncInterval > 1000 ? Math.floor(rawSyncInterval / 1000) : rawSyncInterval)
-        : 60;
+        : 30;
       setSettings({ idleThreshold, storeWindowTitle, syncInterval });
     } catch (error) {
       console.error('Failed to load settings:', error);

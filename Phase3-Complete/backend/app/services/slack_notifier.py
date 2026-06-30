@@ -5,6 +5,7 @@ Sends notifications to Slack
 import httpx
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
+from app.core.crypto import decrypt_json_payload
 from app.models.integrations import Integration, IntegrationType
 from app.models.alerts import Alert
 
@@ -22,7 +23,7 @@ class SlackNotifier:
         ).first()
         
         if integration and integration.is_configured:
-            return integration.config_json
+            return decrypt_json_payload(integration.config_json)
         return None
     
     async def send_alert_notification(self, alert: Alert):

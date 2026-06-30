@@ -1,8 +1,8 @@
-# Phase 3 - Complete: Privacy-Preserving Employee Activity Tracker
+# Phase 3 - Integrated Release Candidate: Privacy-Preserving Employee Activity Tracker
 
 ## 📋 Overview
 
-Phase 3 is the complete, production-ready version with all features including third-party integrations, SSO authentication, and ML-assisted classification.
+Phase 3 is the integrated release-candidate version. Core tracking, reporting, dashboards, SSO, and admin flows are present, while third-party integrations and ML-assisted classification still require deployment-specific configuration and operational hardening before a true production rollout.
 
 ## 🎯 Complete Feature Set
 
@@ -16,15 +16,15 @@ Phase 3 is the complete, production-ready version with all features including th
 
 ### From Phase 2 (Advanced)
 - ✅ Department analytics & comparisons
-- ✅ Alert system with rules
+- ✅ Alert system with rules and manual/worker execution
 - ✅ Weekly trends
 
-### Phase 3 (Complete)
-- ✅ **Slack Integration** - Send alerts and daily summaries
-- ✅ **Jira Integration** - Sync issues and log work time
+### Phase 3 (Integrated)
+- ✅ **Slack Integration APIs/UI** - Configure, test, and deliver alert notifications when the worker is running
+- ⚠️ **Jira Integration APIs/UI** - Configure and test Jira connectivity; automatic sync/export is not enabled in this release
 - ✅ **Google SSO** - Single sign-on with Google Workspace
 - ✅ **Microsoft SSO** - Single sign-on with Microsoft 365
-- ✅ **ML Classification** - AI-assisted domain/app categorization
+- ✅ **ML Classification Review** - Unrecognized browser domains and desktop apps now generate review suggestions during ingest
 
 ## 🏗️ New in Phase 3
 
@@ -55,7 +55,7 @@ manager-portal/src/pages/
 
 ### Slack Integration
 
-Send alerts and daily summaries to Slack channels.
+Send alert notifications to Slack channels.
 
 **Configuration:**
 ```json
@@ -65,13 +65,22 @@ Send alerts and daily summaries to Slack channels.
 ```
 
 **Features:**
-- Real-time alert notifications
-- Daily summary reports
+- Alert notifications from generated rules
+- Connection testing from the admin UI
 - Custom message formatting
+
+**Runtime requirement:**
+
+Run the operational worker to evaluate rules and send Slack notifications:
+
+```bash
+cd backend
+python -m app.workers.operational_jobs --interval 300
+```
 
 ### Jira Integration
 
-Sync work data with Jira for time tracking.
+Store Jira credentials securely and test API connectivity.
 
 **Configuration:**
 ```json
@@ -82,10 +91,10 @@ Sync work data with Jira for time tracking.
 }
 ```
 
-**Features:**
-- Fetch assigned issues
-- Log work time automatically
-- Sync project data
+**Current release scope:**
+- Admin configuration and connection tests
+- Internal service hooks for future exports
+- No automatic issue sync or worklog export in this release candidate
 
 ## 🔐 SSO Authentication
 
@@ -121,14 +130,14 @@ Sync work data with Jira for time tracking.
 
 ## 🤖 ML Classification
 
-The ML classifier automatically categorizes domains and apps based on patterns.
+The ML classifier now generates review suggestions for uncategorized browser domains and desktop app names during ingest.
 
 ### How It Works
 
-1. When a new domain/app is detected, ML analyzes patterns
-2. Classification is predicted with confidence score
-3. Managers can review and approve/correct predictions
-4. Approved classifications are cached for future use
+1. Browser/domain ingest checks explicit organization rules first
+2. Unknown domains and app names are classified by the ML pattern service
+3. Managers can review and approve or reject suggestions
+4. Approved classifications are reused on future ingest
 
 ### Classification Categories
 
@@ -161,9 +170,9 @@ The ML classifier automatically categorizes domains and apps based on patterns.
 - `GET /api/v1/integrations/sso` - List SSO providers
 - `POST /api/v1/integrations/sso` - Create SSO provider
 
-## 📦 Production Deployment
+## 📦 Deployment Notes
 
-### Docker Compose (Full Stack)
+### Example Docker Compose (Full Stack + Alert Worker)
 
 ```yaml
 version: '3.8'
@@ -176,6 +185,13 @@ services:
       - SECRET_KEY=...
     ports:
       - "8000:8000"
+
+  alert-worker:
+    build: ./backend
+    command: python -m app.workers.operational_jobs --interval 300
+    environment:
+      - DATABASE_URL=postgresql://...
+      - SECRET_KEY=...
   
   webcam-service:
     build: ./webcam-service
@@ -215,6 +231,15 @@ MICROSOFT_CLIENT_SECRET=...
 MICROSOFT_TENANT_ID=...
 ```
 
+### Database Migrations
+
+The backend no longer creates tables automatically on startup. Apply migrations before starting the API:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
 ## 🔧 Setup Checklist
 
 1. ☐ Deploy backend with PostgreSQL and Redis
@@ -227,6 +252,85 @@ MICROSOFT_TENANT_ID=...
 8. ☐ (Optional) Configure SSO providers
 9. ☐ Deploy desktop app to employees
 10. ☐ Install browser extension
+11. ☐ Run the alert worker for rule processing and Slack delivery
+
+## 🧪 Local Staging Runbook
+
+Use this order for supervised demo or internal staging on one machine:
+
+1. Start PostgreSQL and Redis if you are not using the backend's local SQLite development mode.
+2. Apply backend migrations before starting the API:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+3. Start the backend API:
+
+```bash
+cd backend
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+4. Start the alert worker in a separate terminal:
+
+```bash
+cd backend
+python -m app.workers.operational_jobs --interval 30
+```
+
+5. Start the webcam service:
+
+```bash
+cd webcam-service
+python main.py
+```
+
+6. Start the manager portal:
+
+```bash
+cd manager-portal
+npm run dev -- --host 127.0.0.1 --port 3000
+```
+
+7. Start the desktop app in development mode:
+
+```bash
+cd desktop-app
+npm run dev
+```
+
+8. Load the browser extension from `Phase3-Complete/browser-extension` after the desktop app is already running, so the local browser-usage receiver on `127.0.0.1:8080` is available.
+
+For a one-command local demo bootstrap, use:
+
+```bash
+cd Phase3-Complete
+./run-demo.sh --reset-demo-db
+```
+
+Stop the demo stack with:
+
+```bash
+./stop-demo.sh
+```
+
+Headless-safe validation path:
+
+```bash
+./run-demo.sh --reset-demo-db --skip-desktop
+```
+
+Notes:
+- The helper script uses an isolated SQLite file at `backend/demo_staging.db`.
+- Use `--reset-demo-db` before a clean demo run.
+- The current client-facing date boundary is the UTC ISO day used by the desktop and manager UIs.
+- For supervised demos, prefer `desktop-app` development mode over packaged installers. Packaged build assets are not part of the validated local demo path.
+- Slack alert delivery requires the worker to be running.
+- Jira remains configuration/test-only in this release candidate.
+
+See [DEMO_RUNBOOK.md](./DEMO_RUNBOOK.md) for the validated smoke scenario, expected outcomes, and recovery steps.
 
 ## 📊 Monitoring
 
@@ -255,14 +359,14 @@ Proprietary - All rights reserved.
 
 ## 🎉 Congratulations!
 
-You now have a complete, privacy-preserving employee activity tracking system with:
+You now have an integrated release candidate with:
 
 - **Desktop tracking** - App usage, idle time, presence detection
 - **Browser tracking** - Domain usage with privacy (no content)
 - **Dashboards** - Employee personal + Manager team views
 - **Analytics** - Department comparisons, trends, reports
-- **Alerts** - Configurable rules for anomalies
-- **Integrations** - Slack, Jira, SSO
-- **AI Classification** - ML-assisted domain categorization
+- **Alerts** - Configurable rules with manual and worker-driven processing
+- **Integrations** - Slack alert delivery, Jira connectivity testing, and SSO
+- **AI Classification** - ML-assisted review suggestions for domains and apps
 
 The system is designed with privacy as a core principle - no screenshots, no camera images, no keystroke content, just the essential metrics for productivity insights.

@@ -9,6 +9,8 @@ class PresenceTracker {
         this.localStorage = localStorage;
         this.statusUrl = options.statusUrl || 'http://127.0.0.1:8001/status';
         this.pollInterval = options.pollInterval || 10000; // 10s
+        this.currentPollInterval = this.pollInterval;
+        this.cameraOffStreak = 0;
 
         this.isRunning = false;
         this.isPaused = false;
@@ -59,9 +61,19 @@ class PresenceTracker {
                 this.currentState = nextState;
                 this.currentStateStart = new Date();
             }
+
+            if (nextState === 'camera_off') {
+                this.cameraOffStreak += 1;
+                if (this.cameraOffStreak >= 3) {
+                    this.currentPollInterval = Math.min(this.pollInterval * 3, this.currentPollInterval + this.pollInterval);
+                }
+            } else {
+                this.cameraOffStreak = 0;
+                this.currentPollInterval = this.pollInterval;
+            }
         }
 
-        this.timer = setTimeout(() => this.poll(), this.pollInterval);
+        this.timer = setTimeout(() => this.poll(), this.currentPollInterval);
     }
 
     async fetchPresenceState() {
@@ -81,19 +93,44 @@ class PresenceTracker {
         if (!this.currentState || !this.currentStateStart) return;
 
         const end = new Date();
-        const durationSec = Math.floor((end - this.currentStateStart) / 1000);
+        this.savePresenceInterval(this.currentStateStart, end);
+
+        this.currentState = null;
+        this.currentStateStart = null;
+    }
+
+    flushOpenInterval() {
+        if (!this.currentState || !this.currentStateStart) return;
+
+        const end = new Date();
+        if (this.savePresenceInterval(this.currentStateStart, end)) {
+            this.currentStateStart = end;
+        }
+    }
+
+    savePresenceInterval(start, end) {
+        const durationSec = Math.floor((end - start) / 1000);
 
         if (durationSec >= 1) {
             this.localStorage.savePresenceInterval({
                 state: this.currentState,
-                start_ts: this.currentStateStart.toISOString(),
+                start_ts: start.toISOString(),
                 end_ts: end.toISOString(),
                 duration_sec: durationSec
             });
+            return true;
         }
+        return false;
+    }
 
-        this.currentState = null;
-        this.currentStateStart = null;
+    getStats() {
+        return {
+            isRunning: this.isRunning,
+            isPaused: this.isPaused,
+            currentState: this.currentState,
+            stateSince: this.currentStateStart,
+            pollInterval: this.currentPollInterval
+        };
     }
 }
 

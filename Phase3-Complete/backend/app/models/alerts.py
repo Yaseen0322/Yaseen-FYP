@@ -2,7 +2,7 @@
 Alert Models - Phase 2
 Tracks alerts for excessive idle, camera off, low productivity
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Text, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Text, JSON, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -52,6 +52,11 @@ class AlertRule(Base):
 class Alert(Base):
     """Individual alert instances"""
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_org_triggered", "org_id", "triggered_at"),
+        Index("ix_alerts_user_read_triggered", "user_id", "is_read", "triggered_at"),
+        Index("ux_alerts_dedupe_key", "dedupe_key", unique=True),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
@@ -67,6 +72,7 @@ class Alert(Base):
     # Context data
     context_json = Column(JSON, default={})
     # e.g., {"idle_duration_sec": 7200, "date": "2024-01-15"}
+    dedupe_key = Column(String(255), nullable=True)
     
     # Status
     is_read = Column(Boolean, default=False)

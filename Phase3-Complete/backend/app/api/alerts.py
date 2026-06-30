@@ -7,9 +7,12 @@ from sqlalchemy import func, and_
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.dates import utc_today
+from app.core.pagination import build_paginated_response
 from app.core.security import get_current_user, get_current_manager
 from app.models.user import User
 from app.models.alerts import Alert, AlertRule, AlertType, AlertSeverity
+from app.services.runtime_jobs import process_org_alerts
 
 router = APIRouter()
 
@@ -26,6 +29,14 @@ class AlertRuleCreate(BaseModel):
     config_json: Dict[str, Any] = {}
     notify_employee: bool = False
     notify_manager: bool = True
+
+
+class AlertRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    severity: Optional[str] = None
+    config_json: Optional[Dict[str, Any]] = None
+    notify_employee: Optional[bool] = None
+    notify_manager: Optional[bool] = None
 
 
 class AlertRuleResponse(BaseModel):
@@ -96,13 +107,14 @@ async def create_alert_rule(
 
 
 @router.patch("/rules/{rule_id}")
-async def toggle_alert_rule(
+async def update_alert_rule(
     rule_id: int,
-    is_active: bool,
+    payload: AlertRuleUpdate,
+    is_active: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager)
 ):
-    """Toggle alert rule active status"""
+    """Update alert rule details or active status"""
     rule = db.query(AlertRule).filter(
         AlertRule.id == rule_id,
         AlertRule.org_id == current_user.org_id
@@ -110,10 +122,17 @@ async def toggle_alert_rule(
     
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    
-    rule.is_active = is_active
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(rule, field, value)
+
+    if is_active is not None:
+        rule.is_active = is_active
+
     db.commit()
-    return {"message": "Rule updated", "is_active": is_active}
+    db.refresh(rule)
+    return AlertRuleResponse.model_validate(rule)
 
 
 @router.delete("/rules/{rule_id}")
@@ -137,13 +156,14 @@ async def delete_alert_rule(
 
 
 # Alerts
-@router.get("/", response_model=List[AlertResponse])
+@router.get("/")
 async def list_alerts(
     user_id: Optional[int] = None,
     alert_type: Optional[str] = None,
     severity: Optional[str] = None,
     unread_only: bool = False,
-    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager)
 ):
@@ -159,14 +179,21 @@ async def list_alerts(
     if unread_only:
         query = query.filter(Alert.is_read == False)
     
-    alerts = query.order_by(Alert.triggered_at.desc()).limit(limit).all()
-    return alerts
+    total = query.count()
+    alerts = query.order_by(Alert.triggered_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
+    return build_paginated_response(
+        [AlertResponse.model_validate(alert).model_dump() for alert in alerts],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
-@router.get("/my", response_model=List[AlertResponse])
+@router.get("/my")
 async def list_my_alerts(
     unread_only: bool = False,
-    limit: int = Query(default=20, le=50),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -176,8 +203,14 @@ async def list_my_alerts(
     if unread_only:
         query = query.filter(Alert.is_read == False)
     
-    alerts = query.order_by(Alert.triggered_at.desc()).limit(limit).all()
-    return alerts
+    total = query.count()
+    alerts = query.order_by(Alert.triggered_at.desc(), Alert.id.desc()).offset(offset).limit(limit).all()
+    return build_paginated_response(
+        [AlertResponse.model_validate(alert).model_dump() for alert in alerts],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/{alert_id}/read")
@@ -187,14 +220,19 @@ async def mark_alert_read(
     current_user: User = Depends(get_current_user)
 ):
     """Mark alert as read"""
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if current_user.role in ["manager", "admin", "super_admin"]:
+        alert = db.query(Alert).filter(
+            Alert.id == alert_id,
+            Alert.org_id == current_user.org_id
+        ).first()
+    else:
+        alert = db.query(Alert).filter(
+            Alert.id == alert_id,
+            Alert.user_id == current_user.id
+        ).first()
     
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    
-    # Verify access
-    if alert.user_id != current_user.id and current_user.role not in ["manager", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
     
     alert.is_read = True
     db.commit()
@@ -229,7 +267,7 @@ async def get_alert_stats(
     current_user: User = Depends(get_current_manager)
 ):
     """Get alert statistics"""
-    today = date.today()
+    today = utc_today()
     week_ago = today - timedelta(days=7)
     
     # Total alerts
@@ -266,4 +304,19 @@ async def get_alert_stats(
         "unread": unread,
         "by_severity": {s: c for s, c in by_severity},
         "by_type": {t: c for t, c in by_type}
+    }
+
+
+@router.post("/process")
+async def process_alert_rules_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_manager),
+):
+    """
+    Evaluate active alert rules immediately for the current organization.
+    """
+    result = await process_org_alerts(db, current_user.org_id)
+    return {
+        "message": "Alert rules processed",
+        **result,
     }

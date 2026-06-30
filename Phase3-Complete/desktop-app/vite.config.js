@@ -7,7 +7,15 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist-renderer',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom', 'zustand'],
+          charts: ['recharts'],
+        },
+      },
+    },
   },
   resolve: {
     alias: {
@@ -15,7 +23,20 @@ export default defineConfig({
     }
   },
   server: {
+    host: '127.0.0.1',
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    watch: {
+      ignored: [
+        '**/.git/**',
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/dist-renderer/**',
+        '**/dist-electron/**',
+        '**/release/**',
+        '**/.vite/**',
+        '**/coverage/**',
+      ],
+    },
   }
 });

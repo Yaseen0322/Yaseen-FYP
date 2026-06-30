@@ -112,15 +112,19 @@ class IdleDetector {
         }
     }
 
-    flushIdleChunk() {
+    flushIdleChunk(force = false) {
         if (!this.isIdle || !this.lastFlushedAt) return;
 
         const now = new Date();
         const chunkSec = Math.floor((now - this.lastFlushedAt) / 1000);
-        if (chunkSec >= this.chunkFlushInterval) {
+        if (chunkSec >= (force ? 1 : this.chunkFlushInterval)) {
             this.saveIdleInterval(this.lastFlushedAt, now);
             this.lastFlushedAt = now;
         }
+    }
+
+    flushOpenInterval() {
+        this.flushIdleChunk(true);
     }
 
     saveIdleInterval(startTime, endTime) {

@@ -7,6 +7,7 @@ from sqlalchemy import func, and_
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.dates import utc_today
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.activity import AppUsage, IdleInterval
@@ -16,6 +17,11 @@ from app.models.daily_summary import DailySummary
 from app.schemas.reports import (
     TimelineResponse, TimelineBlock,
     AppUsageSummary, DomainUsageSummary, WeeklySummary
+)
+from app.services.reporting import (
+    build_daily_summary_response,
+    build_timeline_blocks,
+    upsert_daily_summary,
 )
 
 router = APIRouter()
@@ -52,125 +58,20 @@ async def get_my_summary(
     Get daily summary for current user
     """
     if target_date is None:
-        target_date = date.today()
+        target_date = utc_today()
     
-    # Try to get pre-computed summary
-    summary = db.query(DailySummary).filter(
-        DailySummary.user_id == current_user.id,
-        DailySummary.date == target_date
-    ).first()
-    
-    if summary:
-        return _build_summary_payload(current_user.id, target_date, summary)
-    
-    # Compute summary on-the-fly
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
-    
-    # Get app usage
-    app_time = db.query(func.sum(AppUsage.duration_sec)).filter(
-        AppUsage.user_id == current_user.id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).scalar() or 0
-    
-    # Get idle time
-    idle_time = db.query(func.sum(IdleInterval.duration_sec)).filter(
-        IdleInterval.user_id == current_user.id,
-        IdleInterval.start_ts >= start_dt,
-        IdleInterval.end_ts <= end_dt
-    ).scalar() or 0
-    
-    # Get presence times
-    presence_times = db.query(
-        PresenceInterval.state,
-        func.sum(PresenceInterval.duration_sec)
-    ).filter(
-        PresenceInterval.user_id == current_user.id,
-        PresenceInterval.start_ts >= start_dt,
-        PresenceInterval.end_ts <= end_dt
-    ).group_by(PresenceInterval.state).all()
-    
-    present_sec = 0
-    absent_sec = 0
-    camera_off_sec = 0
-    for state, duration in presence_times:
-        if state == "present":
-            present_sec = duration or 0
-        elif state == "absent":
-            absent_sec = duration or 0
-        elif state == "camera_off":
-            camera_off_sec = duration or 0
-    
-    # Get productivity breakdown
-    productivity = db.query(
-        BrowserUsage.label,
-        func.sum(BrowserUsage.duration_sec)
-    ).filter(
-        BrowserUsage.user_id == current_user.id,
-        BrowserUsage.start_ts >= start_dt,
-        BrowserUsage.end_ts <= end_dt
-    ).group_by(BrowserUsage.label).all()
-    
-    productive_sec = 0
-    unproductive_sec = 0
-    neutral_sec = 0
-    for label, duration in productivity:
-        if label == "productive":
-            productive_sec = duration or 0
-        elif label == "unproductive":
-            unproductive_sec = duration or 0
-        else:
-            neutral_sec = duration or 0
-    
-    # Get top apps
-    top_apps = db.query(
-        AppUsage.app_name,
-        func.sum(AppUsage.duration_sec).label('total')
-    ).filter(
-        AppUsage.user_id == current_user.id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).group_by(AppUsage.app_name).order_by(
-        func.sum(AppUsage.duration_sec).desc()
-    ).limit(10).all()
-    
-    # Get top domains
-    top_domains = db.query(
-        BrowserUsage.domain,
-        BrowserUsage.category,
-        BrowserUsage.label,
-        func.sum(BrowserUsage.duration_sec).label('total')
-    ).filter(
-        BrowserUsage.user_id == current_user.id,
-        BrowserUsage.start_ts >= start_dt,
-        BrowserUsage.end_ts <= end_dt
-    ).group_by(
-        BrowserUsage.domain,
-        BrowserUsage.category,
-        BrowserUsage.label
-    ).order_by(func.sum(BrowserUsage.duration_sec).desc()).limit(10).all()
-    
-    return {
-        "user_id": current_user.id,
-        "date": target_date.isoformat(),
-        "focus_sec": app_time,
-        "idle_sec": idle_time,
-        "present_sec": present_sec,
-        "absent_sec": absent_sec,
-        "camera_off_sec": camera_off_sec,
-        "productive_sec": productive_sec,
-        "unproductive_sec": unproductive_sec,
-        "neutral_sec": neutral_sec,
-        "top_apps": [
-            {"app_name": app, "duration_sec": dur}
-            for app, dur in top_apps
-        ],
-        "top_domains": [
-            {"domain": d, "category": c, "label": l, "duration_sec": dur}
-            for d, c, l, dur in top_domains
-        ]
-    }
+    # Use pre-computed summary only for historical dates.
+    # For today, compute live so dashboard reflects near real-time tracking changes.
+    if target_date != utc_today():
+        summary = db.query(DailySummary).filter(
+            DailySummary.user_id == current_user.id,
+            DailySummary.date == target_date
+        ).first()
+        
+        if summary:
+            return _build_summary_payload(current_user.id, target_date, summary)
+
+    return build_daily_summary_response(db, current_user.id, target_date)
 
 
 @router.get("/timeline")
@@ -183,61 +84,12 @@ async def get_my_timeline(
     Get timeline of activities for a day
     """
     if target_date is None:
-        target_date = date.today()
+        target_date = utc_today()
     
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
-    
-    blocks = []
-    
-    # Get presence intervals
-    presence = db.query(PresenceInterval).filter(
-        PresenceInterval.user_id == current_user.id,
-        PresenceInterval.start_ts >= start_dt,
-        PresenceInterval.end_ts <= end_dt
-    ).order_by(PresenceInterval.start_ts).all()
-    
-    for p in presence:
-        blocks.append(TimelineBlock(
-            type=p.state,
-            start_ts=p.start_ts,
-            end_ts=p.end_ts,
-            duration_sec=p.duration_sec
-        ))
-    
-    # Get idle intervals
-    idles = db.query(IdleInterval).filter(
-        IdleInterval.user_id == current_user.id,
-        IdleInterval.start_ts >= start_dt,
-        IdleInterval.end_ts <= end_dt
-    ).order_by(IdleInterval.start_ts).all()
-    
-    for i in idles:
-        blocks.append(TimelineBlock(
-            type="idle",
-            start_ts=i.start_ts,
-            end_ts=i.end_ts,
-            duration_sec=i.duration_sec
-        ))
-    
-    # Get app usage (aggregated)
-    apps = db.query(AppUsage).filter(
-        AppUsage.user_id == current_user.id,
-        AppUsage.start_ts >= start_dt,
-        AppUsage.end_ts <= end_dt
-    ).order_by(AppUsage.start_ts).all()
-    
-    for a in apps:
-        blocks.append(TimelineBlock(
-            type="app_usage",
-            start_ts=a.start_ts,
-            end_ts=a.end_ts,
-            duration_sec=a.duration_sec,
-            details={"app_name": a.app_name}
-        ))
-    
-    # Sort by start time
-    blocks.sort(key=lambda x: x.start_ts)
+    blocks = [
+        TimelineBlock(**block)
+        for block in build_timeline_blocks(db, current_user.id, target_date)
+    ]
     
     return TimelineResponse(date=target_date, blocks=blocks)
 
@@ -251,7 +103,7 @@ async def get_weekly_summary(
     """
     Get weekly summary
     """
-    today = date.today()
+    today = utc_today()
     # Get start of week (Monday)
     week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
     week_end = week_start + timedelta(days=6)
@@ -260,30 +112,30 @@ async def get_weekly_summary(
     total_focus = 0
     total_idle = 0
     total_present = 0
-    
+
+    precomputed = db.query(DailySummary).filter(
+        DailySummary.user_id == current_user.id,
+        DailySummary.date >= week_start,
+        DailySummary.date <= week_end
+    ).all()
+    precomputed_by_date = {item.date: item for item in precomputed}
+
     for i in range(7):
         day = week_start + timedelta(days=i)
-        start_dt = datetime.combine(day, datetime.min.time())
-        end_dt = datetime.combine(day, datetime.max.time())
-        
-        focus = db.query(func.sum(AppUsage.duration_sec)).filter(
-            AppUsage.user_id == current_user.id,
-            AppUsage.start_ts >= start_dt,
-            AppUsage.end_ts <= end_dt
-        ).scalar() or 0
-        
-        idle = db.query(func.sum(IdleInterval.duration_sec)).filter(
-            IdleInterval.user_id == current_user.id,
-            IdleInterval.start_ts >= start_dt,
-            IdleInterval.end_ts <= end_dt
-        ).scalar() or 0
-        
-        present = db.query(func.sum(PresenceInterval.duration_sec)).filter(
-            PresenceInterval.user_id == current_user.id,
-            PresenceInterval.state == "present",
-            PresenceInterval.start_ts >= start_dt,
-            PresenceInterval.end_ts <= end_dt
-        ).scalar() or 0
+        summary = precomputed_by_date.get(day)
+        # Keep current day live to avoid stale "today" values in weekly report.
+        if summary and day != today:
+            focus = summary.focus_sec or 0
+            idle = summary.idle_sec or 0
+            present = summary.present_sec or 0
+        else:
+            payload = build_daily_summary_response(db, current_user.id, day)
+            if day != today:
+                upsert_daily_summary(db, current_user.id, day)
+                db.commit()
+            focus = payload["focus_sec"]
+            idle = payload["idle_sec"]
+            present = payload["present_sec"]
         
         daily_summaries.append({
             "date": day.isoformat(),

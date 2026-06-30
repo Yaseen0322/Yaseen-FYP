@@ -7,14 +7,29 @@
 // Configuration
 const CONFIG = {
     agentUrl: 'http://127.0.0.1:8080/browser-usage',
-    sendInterval: 30000, // 30 seconds
-    minDuration: 5, // Minimum seconds to track
+    sendInterval: 5000, // 5 seconds for near-real-time dashboard updates
+    minDuration: 2, // Minimum seconds to track
+    alarmName: 'flush-browser-usage',
 };
 
 // State
 let currentTabInfo = null;
 let usageBuffer = [];
 let isTracking = true;
+let isSending = false;
+let lastPersistedAt = 0;
+
+function isTrackableUrl(url) {
+    return !!(
+        url &&
+        !url.startsWith('chrome://') &&
+        !url.startsWith('about:') &&
+        !url.startsWith('edge://') &&
+        !url.startsWith('brave://') &&
+        !url.startsWith('chrome-extension://') &&
+        !url.startsWith('moz-extension://')
+    );
+}
 
 // Extract domain from URL
 function extractDomain(url) {
@@ -38,27 +53,39 @@ function getBrowserName() {
 
 // Start tracking a new tab
 function startTracking(tab) {
-    if (!tab || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('about:')) {
-        currentTabInfo = null;
+    if (!tab || !isTrackableUrl(tab.url)) {
+        finalizeCurrentTab();
         return;
     }
 
     const domain = extractDomain(tab.url);
     if (!domain) {
-        currentTabInfo = null;
+        finalizeCurrentTab();
         return;
     }
 
-    // Save previous tab usage if exists
-    if (currentTabInfo && currentTabInfo.domain !== domain) {
-        finalizeCurrentTab();
+    const nextTabId = tab.id ?? null;
+    const nextWindowId = tab.windowId ?? null;
+
+    if (
+        currentTabInfo &&
+        currentTabInfo.domain === domain &&
+        currentTabInfo.tabId === nextTabId &&
+        currentTabInfo.windowId === nextWindowId
+    ) {
+        return;
     }
+
+    finalizeCurrentTab();
 
     currentTabInfo = {
         domain: domain,
         browser: getBrowserName(),
+        tabId: nextTabId,
+        windowId: nextWindowId,
         startTime: new Date(),
     };
+    persistState();
 }
 
 // Finalize current tab tracking
@@ -80,14 +107,17 @@ function finalizeCurrentTab() {
     }
 
     currentTabInfo = null;
+    persistState();
 }
 
 // Send buffered data to agent
 async function sendToAgent() {
-    if (usageBuffer.length === 0) return;
+    if (isSending || usageBuffer.length === 0) return;
+    isSending = true;
 
     const dataToSend = [...usageBuffer];
     usageBuffer = [];
+    persistState();
 
     try {
         const response = await fetch(CONFIG.agentUrl, {
@@ -96,19 +126,25 @@ async function sendToAgent() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({ items: dataToSend }),
+            keepalive: true
         });
 
         if (!response.ok) {
             // Put data back in buffer if failed
             usageBuffer = [...dataToSend, ...usageBuffer];
+            persistState();
             console.error('Failed to send browser usage:', response.status);
         } else {
             console.log(`Sent ${dataToSend.length} browser usage records`);
+            persistState();
         }
     } catch (error) {
         // Put data back in buffer if failed
         usageBuffer = [...dataToSend, ...usageBuffer];
+        persistState();
         console.error('Error sending browser usage:', error);
+    } finally {
+        isSending = false;
     }
 }
 
@@ -155,23 +191,73 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     }
 });
 
-// Periodic send
-setInterval(() => {
-    if (isTracking) {
-        // Finalize and restart current tab to get accurate timing
-        if (currentTabInfo) {
-            const domain = currentTabInfo.domain;
-            const browser = currentTabInfo.browser;
-            finalizeCurrentTab();
+async function refreshActiveTabTracking() {
+    if (currentTabInfo) return;
+
+    try {
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tabs[0]) {
+            startTracking(tabs[0]);
+        }
+    } catch (error) {
+        console.error('Error refreshing active tab tracking:', error);
+    }
+}
+
+async function flushTick() {
+    if (!isTracking) return;
+
+    await refreshActiveTabTracking();
+
+    // Finalize and restart current tab to get accurate timing.
+    if (currentTabInfo) {
+        const domain = currentTabInfo.domain;
+        const browser = currentTabInfo.browser;
+        const tabId = currentTabInfo.tabId ?? null;
+        const windowId = currentTabInfo.windowId ?? null;
+        finalizeCurrentTab();
+        currentTabInfo = {
+            domain: domain,
+            browser: browser,
+            tabId: tabId,
+            windowId: windowId,
+            startTime: new Date(),
+        };
+    }
+
+    await sendToAgent();
+}
+
+function persistState(force = false) {
+    const now = Date.now();
+    if (!force && now - lastPersistedAt < 3000) return;
+    lastPersistedAt = now;
+    chrome.storage.local.set({
+        usageBuffer,
+        currentTabInfo: currentTabInfo
+            ? { ...currentTabInfo, startTime: currentTabInfo.startTime.toISOString() }
+            : null,
+        isTracking
+    });
+}
+
+async function restoreState() {
+    try {
+        const data = await chrome.storage.local.get(['usageBuffer', 'currentTabInfo', 'isTracking']);
+        usageBuffer = Array.isArray(data.usageBuffer) ? data.usageBuffer : [];
+        if (typeof data.isTracking === 'boolean') {
+            isTracking = data.isTracking;
+        }
+        if (data.currentTabInfo?.domain && data.currentTabInfo?.startTime) {
             currentTabInfo = {
-                domain: domain,
-                browser: browser,
-                startTime: new Date(),
+                ...data.currentTabInfo,
+                startTime: new Date(data.currentTabInfo.startTime)
             };
         }
-        sendToAgent();
+    } catch (error) {
+        console.error('Failed to restore extension state:', error);
     }
-}, CONFIG.sendInterval);
+}
 
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -186,16 +272,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!isTracking) {
             finalizeCurrentTab();
         }
+        persistState(true);
         sendResponse({ isTracking: isTracking });
     }
     return true;
 });
 
-// Initial tab tracking
-chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs[0]) {
-        startTracking(tabs[0]);
+chrome.runtime.onSuspend.addListener(() => {
+    finalizeCurrentTab();
+    persistState(true);
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === CONFIG.alarmName) {
+        flushTick();
     }
 });
+
+setInterval(flushTick, CONFIG.sendInterval);
+
+async function initialize() {
+    await restoreState();
+    chrome.alarms.clear(CONFIG.alarmName, () => {
+        chrome.alarms.create(CONFIG.alarmName, {
+            periodInMinutes: Math.max(CONFIG.sendInterval / 60000, 0.5)
+        });
+    });
+
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+        if (tabs[0]) {
+            startTracking(tabs[0]);
+        }
+    });
+}
+
+initialize();
 
 console.log('Activity Tracker Browser Extension loaded');

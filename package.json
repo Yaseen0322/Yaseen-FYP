@@ -4,6 +4,9 @@
   "private": true,
   "description": "Consolidated Node dependencies for Amina FYP (desktop app + manager portal + tooling).",
   "scripts": {
+    "demo:start": "cd Phase3-Complete && ./run-demo.sh",
+    "demo:stop": "cd Phase3-Complete && ./stop-demo.sh",
+    "demo:seed": "cd Phase3-Complete/backend && DATABASE_URL=sqlite:///./demo_staging.db SECRET_KEY=demo-staging-secret-key-change-before-release-1234 .venv/bin/alembic upgrade head && DATABASE_URL=sqlite:///./demo_staging.db SECRET_KEY=demo-staging-secret-key-change-before-release-1234 .venv/bin/python scripts/seed_demo_accounts.py",
     "dev:desktop": "cd Phase3-Complete/desktop-app && npm run dev",
     "dev:manager": "cd Phase3-Complete/manager-portal && npm run dev",
     "build:desktop": "cd Phase3-Complete/desktop-app && npm run build",

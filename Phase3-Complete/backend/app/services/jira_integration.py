@@ -1,11 +1,13 @@
 """
 Jira Integration Service - Phase 3
-Syncs productivity data with Jira
+Supports connectivity checks and future export hooks.
+Automatic sync is not enabled in this release candidate.
 """
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
+from app.core.crypto import decrypt_json_payload
 from app.models.integrations import Integration, IntegrationType
 from app.models.user import User
 
@@ -23,7 +25,7 @@ class JiraIntegration:
         ).first()
         
         if integration and integration.is_configured:
-            return integration.config_json
+            return decrypt_json_payload(integration.config_json)
         return None
     
     async def get_user_issues(
@@ -185,7 +187,7 @@ class JiraIntegration:
 
 
 async def sync_jira_data(db: Session, org_id: int):
-    """Sync Jira data for organization"""
+    """Reserved hook for future Jira sync jobs."""
     jira = JiraIntegration(db)
     
     # Get all employees

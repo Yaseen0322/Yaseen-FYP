@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import api from '../utils/api';
+import PaginationControls from '../components/PaginationControls';
 
 function DepartmentAnalytics() {
   const [departmentsSummary, setDepartmentsSummary] = useState(null);
@@ -9,15 +10,27 @@ function DepartmentAnalytics() {
   const [selectedDept, setSelectedDept] = useState(null);
   const [deptDetails, setDeptDetails] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [detailsError, setDetailsError] = useState('');
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [comparisonMetric, setComparisonMetric] = useState('focus');
+  const [deptEmployeesOffset, setDeptEmployeesOffset] = useState(0);
+  const [deptEmployeesLimit] = useState(10);
 
   useEffect(() => {
     loadData();
   }, [comparisonMetric]);
 
+  useEffect(() => {
+    if (selectedDept) {
+      loadDeptDetails(selectedDept);
+    }
+  }, [selectedDept, deptEmployeesOffset]);
+
   const loadData = async () => {
     setIsLoading(true);
     try {
+      setError('');
       const [summaryRes, comparisonRes, trendsRes] = await Promise.all([
         api.get('/analytics/departments/summary'),
         api.get(`/analytics/departments/comparison?metric=${comparisonMetric}`),
@@ -27,19 +40,31 @@ function DepartmentAnalytics() {
       setComparison(comparisonRes.data);
       setTrends(trendsRes.data);
     } catch (error) {
-      console.error('Failed to load analytics:', error);
+      setError(error.response?.data?.detail || 'Failed to load analytics');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const openDeptDetails = (deptId) => {
+    setSelectedDept(deptId);
+    setDeptEmployeesOffset(0);
+    setDeptDetails(null);
+    setDetailsError('');
+  };
+
   const loadDeptDetails = async (deptId) => {
     try {
-      const response = await api.get(`/analytics/departments/${deptId}/details`);
+      setDetailsLoading(true);
+      setDetailsError('');
+      const response = await api.get(`/analytics/departments/${deptId}/details`, {
+        params: { limit: deptEmployeesLimit, offset: deptEmployeesOffset }
+      });
       setDeptDetails(response.data);
-      setSelectedDept(deptId);
     } catch (error) {
-      console.error('Failed to load department details:', error);
+      setDetailsError(error.response?.data?.detail || 'Failed to load department details');
+    } finally {
+      setDetailsLoading(false);
     }
   };
 
@@ -69,39 +94,56 @@ function DepartmentAnalytics() {
         <p className="text-slate-500 mt-1">Compare and analyze department performance</p>
       </div>
 
-      {/* Department Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {departmentsSummary?.departments?.map((dept, index) => (
-          <div
-            key={dept.department.id}
-            onClick={() => loadDeptDetails(dept.department.id)}
-            className="bg-white rounded-xl border border-slate-200 p-6 cursor-pointer hover:border-primary-300 hover:shadow-md transition-all"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="font-semibold text-slate-800">{dept.department.name}</h3>
-                <p className="text-sm text-slate-500">{dept.employee_count} employees</p>
-              </div>
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg"
-                style={{ backgroundColor: COLORS[index % COLORS.length] }}
-              >
-                🏢
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-slate-400">Avg Focus</p>
-                <p className="text-lg font-semibold text-slate-700">{formatTime(dept.avg_focus_sec)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Productivity</p>
-                <p className="text-lg font-semibold text-emerald-600">{dept.productivity_ratio}%</p>
-              </div>
-            </div>
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="flex items-center justify-between gap-4">
+            <span>{error}</span>
+            <button onClick={loadData} className="font-medium text-rose-700 hover:text-rose-800">
+              Retry
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {/* Department Cards */}
+      {departmentsSummary?.departments?.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {departmentsSummary.departments.map((dept, index) => (
+            <div
+              key={dept.department.id}
+              onClick={() => openDeptDetails(dept.department.id)}
+              className="bg-white rounded-xl border border-slate-200 p-6 cursor-pointer hover:border-primary-300 hover:shadow-md transition-all"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-800">{dept.department.name}</h3>
+                  <p className="text-sm text-slate-500">{dept.employee_count} employees</p>
+                </div>
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg"
+                  style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                >
+                  🏢
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-slate-400">Avg Focus</p>
+                  <p className="text-lg font-semibold text-slate-700">{formatTime(dept.avg_focus_sec)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Productivity</p>
+                  <p className="text-lg font-semibold text-emerald-600">{dept.productivity_ratio}%</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center text-slate-500">
+          No department analytics are available yet.
+        </div>
+      )}
 
       {/* Comparison Chart */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -117,45 +159,55 @@ function DepartmentAnalytics() {
             <option value="productivity">Productivity %</option>
           </select>
         </div>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={comparison?.comparison}>
-            <XAxis dataKey="department" />
-            <YAxis />
-            <Tooltip
-              formatter={(value) => [
-                comparisonMetric === 'productivity' ? `${value}%` : formatTime(value),
-                comparisonMetric.charAt(0).toUpperCase() + comparisonMetric.slice(1)
-              ]}
-            />
-            <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {comparison?.comparison?.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={comparison?.comparison}>
+              <XAxis dataKey="department" />
+              <YAxis />
+              <Tooltip
+                formatter={(value) => [
+                  comparisonMetric === 'productivity' ? `${value}%` : formatTime(value),
+                  comparisonMetric.charAt(0).toUpperCase() + comparisonMetric.slice(1)
+                ]}
+              />
+              <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="py-20 text-center text-slate-400">No comparison data is available for the current period.</p>
+        )}
       </div>
 
       {/* Weekly Trends */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-800 mb-6">Weekly Trends</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={trends?.trends}>
-            <XAxis dataKey="day" />
-            <YAxis />
-            <Tooltip
-              formatter={(value, name) => [formatTime(value), name === 'avg_focus_sec' ? 'Avg Focus' : 'Avg Present']}
-            />
-            <Line type="monotone" dataKey="avg_focus_sec" stroke="#6366f1" strokeWidth={2} name="avg_focus_sec" />
-            <Line type="monotone" dataKey="avg_present_sec" stroke="#10b981" strokeWidth={2} name="avg_present_sec" />
-          </LineChart>
-        </ResponsiveContainer>
-        <div className="flex justify-center gap-6 mt-4">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-primary-500"></div>
-            <span className="text-sm text-slate-600">Avg Focus Time</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-emerald-500"></div>
-            <span className="text-sm text-slate-600">Avg Present Time</span>
-          </div>
-        </div>
+        {trends?.trends?.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={trends?.trends}>
+                <XAxis dataKey="day" />
+                <YAxis />
+                <Tooltip
+                  formatter={(value, name) => [formatTime(value), name === 'avg_focus_sec' ? 'Avg Focus' : 'Avg Present']}
+                />
+                <Line type="monotone" dataKey="avg_focus_sec" stroke="#6366f1" strokeWidth={2} name="avg_focus_sec" />
+                <Line type="monotone" dataKey="avg_present_sec" stroke="#10b981" strokeWidth={2} name="avg_present_sec" />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="flex justify-center gap-6 mt-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded bg-primary-500"></div>
+                <span className="text-sm text-slate-600">Avg Focus Time</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded bg-emerald-500"></div>
+                <span className="text-sm text-slate-600">Avg Present Time</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="py-20 text-center text-slate-400">No weekly trend data is available yet.</p>
+        )}
       </div>
 
       {/* Department Details Modal */}
@@ -175,33 +227,62 @@ function DepartmentAnalytics() {
             {/* Employee Stats */}
             <div className="mb-6">
               <h3 className="font-semibold text-slate-700 mb-4">Employee Performance</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Employee</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Focus</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Present</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Idle</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Productive</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {deptDetails.employees.map((emp) => (
-                      <tr key={emp.id}>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-slate-800">{emp.name}</p>
-                          <p className="text-xs text-slate-500">{emp.email}</p>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.focus_sec)}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.present_sec)}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.idle_sec)}</td>
-                        <td className="px-4 py-3 text-sm text-emerald-600">{formatTime(emp.productive_sec)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {detailsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : detailsError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{detailsError}</span>
+                    <button
+                      onClick={() => loadDeptDetails(selectedDept)}
+                      className="font-medium text-rose-700 hover:text-rose-800"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : deptDetails.employees.length > 0 ? (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Employee</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Focus</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Present</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Idle</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Productive</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {deptDetails.employees.map((emp) => (
+                          <tr key={emp.id}>
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-slate-800">{emp.name}</p>
+                              <p className="text-xs text-slate-500">{emp.email}</p>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.focus_sec)}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.present_sec)}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{formatTime(emp.idle_sec)}</td>
+                            <td className="px-4 py-3 text-sm text-emerald-600">{formatTime(emp.productive_sec)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <PaginationControls
+                    total={deptDetails.employees_total}
+                    limit={deptDetails.employees_limit}
+                    offset={deptDetails.employees_offset}
+                    label="employees"
+                    onPageChange={setDeptEmployeesOffset}
+                  />
+                </>
+              ) : (
+                <p className="py-8 text-center text-slate-400">No employees found in this department.</p>
+              )}
             </div>
 
             {/* Top Apps */}

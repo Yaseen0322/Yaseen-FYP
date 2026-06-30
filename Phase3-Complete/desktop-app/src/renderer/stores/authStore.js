@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+const EMPLOYEE_APP_ROLES = ['employee'];
+
 export const useAuthStore = create((set, get) => ({
   user: null,
   isLoggedIn: false,
@@ -15,6 +17,18 @@ export const useAuthStore = create((set, get) => ({
           window.electronAPI.getUser(),
           window.electronAPI.getSetting('deviceId')
         ]);
+
+        if (!EMPLOYEE_APP_ROLES.includes(user?.role)) {
+          await window.electronAPI.logout();
+          set({
+            isLoggedIn: false,
+            user: null,
+            isLoading: false,
+            needsDeviceRegistration: false,
+            error: 'Use an employee account for the desktop app. Managers should use the manager portal.'
+          });
+          return;
+        }
 
         if (deviceId) {
           set({
@@ -46,6 +60,19 @@ export const useAuthStore = create((set, get) => ({
     try {
       const result = await window.electronAPI.login(email, password);
       if (result.success) {
+        if (!EMPLOYEE_APP_ROLES.includes(result.user?.role)) {
+          await window.electronAPI.logout();
+          const errorMsg = 'Use an employee account for the desktop app. Managers should use the manager portal.';
+          set({
+            isLoggedIn: false,
+            user: null,
+            isLoading: false,
+            error: errorMsg,
+            needsDeviceRegistration: false
+          });
+          return { success: false, error: errorMsg };
+        }
+
         const registration = await window.electronAPI.registerDevice();
         if (registration.success) {
           set({

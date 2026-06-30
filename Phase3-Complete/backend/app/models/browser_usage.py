@@ -1,7 +1,7 @@
 """
 Browser Usage Model and Domain Rules
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -16,6 +16,11 @@ class ProductivityLabel(str, enum.Enum):
 
 class BrowserUsage(Base):
     __tablename__ = "browser_usage"
+    __table_args__ = (
+        Index("ix_browser_usage_user_time", "user_id", "start_ts", "end_ts"),
+        Index("ix_browser_usage_user_label_time", "user_id", "label", "start_ts"),
+        Index("ix_browser_usage_device_time", "device_id", "start_ts", "end_ts"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -44,6 +49,9 @@ class BrowserUsage(Base):
 
 class DomainRule(Base):
     __tablename__ = "domain_rules"
+    __table_args__ = (
+        Index("ix_domain_rules_org_domain", "org_id", "domain"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import verify_schema_up_to_date
 from app.api import api_router
 
 
@@ -17,8 +17,8 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    init_db()
-    print("Database initialized")
+    verify_schema_up_to_date()
+    print("Database schema verified")
     yield
     # Shutdown
     print("Shutting down...")
@@ -48,14 +48,18 @@ app = FastAPI(
 )
 
 # CORS middleware
+default_dev_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "app://.",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # React dev server
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:8080",  # Electron app
-        "app://.",                # Electron protocol
-    ],
+    allow_origins=settings.ALLOWED_ORIGINS or (
+        default_dev_origins if settings.ENVIRONMENT in {"development", "test"} else []
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

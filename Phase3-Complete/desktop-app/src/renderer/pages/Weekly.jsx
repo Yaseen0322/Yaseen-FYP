@@ -5,20 +5,32 @@ function Weekly() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [weeklyData, setWeeklyData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
     loadWeeklyData();
   }, [weekOffset]);
 
-  const loadWeeklyData = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    if (weekOffset !== 0) return undefined;
+    const interval = setInterval(() => loadWeeklyData(false), 15000);
+    const unsubscribe = window.electronAPI.onSyncComplete(() => loadWeeklyData(false));
+    return () => {
+      clearInterval(interval);
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [weekOffset]);
+
+  const loadWeeklyData = async (initial = true) => {
+    if (initial) setIsLoading(true);
     try {
       const data = await window.electronAPI.getWeekly(weekOffset);
       setWeeklyData(data);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Failed to load weekly data:', error);
     } finally {
-      setIsLoading(false);
+      if (initial) setIsLoading(false);
     }
   };
 
@@ -62,6 +74,11 @@ function Weekly() {
           <p className="text-white/40 mt-1">
             {weeklyData?.week_start} - {weeklyData?.week_end}
           </p>
+          {lastUpdated && (
+            <p className="text-white/30 text-xs mt-1">
+              Updated: {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button

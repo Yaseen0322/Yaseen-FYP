@@ -29,8 +29,13 @@ async def register_device(
     ).first()
     
     if device:
+        if device.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This machine is already registered to a different user"
+            )
+
         # Update existing device
-        device.user_id = current_user.id
         device.hostname = device_data.hostname
         device.os = device_data.os
         device.os_version = device_data.os_version

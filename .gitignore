@@ -25,3 +25,11 @@ dist-renderer/
 
 # Logs
 *.log
+
+# Local demo/runtime artifacts
+Phase3-Complete/.demo-*/
+Phase3-Complete/.smoke-logs/
+Phase3-Complete/.desktop-smoke-logs/
+Phase3-Complete/backend/demo_staging.db
+Phase3-Complete/backend/*.backup_*.db
+Phase3-Complete/webcam-service/.demo-*/

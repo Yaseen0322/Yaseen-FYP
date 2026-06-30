@@ -1,15 +1,15 @@
 /**
  * Local Storage Module
- * Stores tracking data locally in SQLite for offline support
+ * Stores tracking data locally in an Electron Store namespace per user
+ * so queued telemetry cannot leak across authenticated sessions.
  */
 const Store = require('electron-store');
-const path = require('path');
-const fs = require('fs');
 
 class LocalStorage {
-    constructor() {
+    constructor(namespace = 'default') {
+        this.namespace = this.normalizeNamespace(namespace);
         this.store = new Store({
-            name: 'tracking-data',
+            name: `tracking-data-${this.namespace}`,
             defaults: {
                 appUsage: [],
                 idleIntervals: [],
@@ -22,17 +22,23 @@ class LocalStorage {
         // Batch size for sync
         this.batchSize = 100;
         
-        console.log('[LocalStorage] Initialized');
+        console.log(`[LocalStorage] Initialized namespace=${this.namespace}`);
     }
 
     // App Usage
     saveAppUsage(record) {
         const records = this.store.get('appUsage', []);
-        records.push({
-            ...record,
-            id: Date.now(),
-            synced: false
+        const merged = this.mergeWithLast(records, record, {
+            keys: ['app_name', 'window_title'],
+            maxGapSeconds: 3
         });
+        if (!merged) {
+            records.push({
+                ...record,
+                id: this.createRecordId(),
+                synced: false
+            });
+        }
         this.store.set('appUsage', records);
     }
 
@@ -55,11 +61,17 @@ class LocalStorage {
     // Idle Intervals
     saveIdleInterval(record) {
         const records = this.store.get('idleIntervals', []);
-        records.push({
-            ...record,
-            id: Date.now(),
-            synced: false
+        const merged = this.mergeWithLast(records, record, {
+            keys: [],
+            maxGapSeconds: 3
         });
+        if (!merged) {
+            records.push({
+                ...record,
+                id: this.createRecordId(),
+                synced: false
+            });
+        }
         this.store.set('idleIntervals', records);
     }
 
@@ -80,11 +92,17 @@ class LocalStorage {
     // Presence Intervals
     savePresenceInterval(record) {
         const records = this.store.get('presenceIntervals', []);
-        records.push({
-            ...record,
-            id: Date.now(),
-            synced: false
+        const merged = this.mergeWithLast(records, record, {
+            keys: ['state'],
+            maxGapSeconds: 3
         });
+        if (!merged) {
+            records.push({
+                ...record,
+                id: this.createRecordId(),
+                synced: false
+            });
+        }
         this.store.set('presenceIntervals', records);
     }
 
@@ -105,11 +123,17 @@ class LocalStorage {
     // Browser Usage
     saveBrowserUsage(record) {
         const records = this.store.get('browserUsage', []);
-        records.push({
-            ...record,
-            id: Date.now(),
-            synced: false
+        const merged = this.mergeWithLast(records, record, {
+            keys: ['browser', 'domain'],
+            maxGapSeconds: 3
         });
+        if (!merged) {
+            records.push({
+                ...record,
+                id: this.createRecordId(),
+                synced: false
+            });
+        }
         this.store.set('browserUsage', records);
     }
 
@@ -167,6 +191,59 @@ class LocalStorage {
 
     clearAll() {
         this.store.clear();
+    }
+
+    getUnsyncedCounts() {
+        const appUsage = this.store.get('appUsage', []);
+        const idleIntervals = this.store.get('idleIntervals', []);
+        const presenceIntervals = this.store.get('presenceIntervals', []);
+        const browserUsage = this.store.get('browserUsage', []);
+
+        return {
+            appUsage: appUsage.filter(r => !r.synced).length,
+            idleIntervals: idleIntervals.filter(r => !r.synced).length,
+            presenceIntervals: presenceIntervals.filter(r => !r.synced).length,
+            browserUsage: browserUsage.filter(r => !r.synced).length
+        };
+    }
+
+    createRecordId() {
+        return Date.now() + Math.floor(Math.random() * 1000);
+    }
+
+    mergeWithLast(records, nextRecord, options = {}) {
+        if (!records.length) return false;
+
+        const last = records[records.length - 1];
+        if (!last || last.synced) return false;
+
+        const keys = options.keys || [];
+        for (const key of keys) {
+            if (last[key] !== nextRecord[key]) return false;
+        }
+
+        const lastEnd = Date.parse(last.end_ts);
+        const nextStart = Date.parse(nextRecord.start_ts);
+        const nextEnd = Date.parse(nextRecord.end_ts);
+        if (!Number.isFinite(lastEnd) || !Number.isFinite(nextStart) || !Number.isFinite(nextEnd)) {
+            return false;
+        }
+
+        const gapSeconds = Math.floor((nextStart - lastEnd) / 1000);
+        const maxGapSeconds = options.maxGapSeconds ?? 0;
+        if (gapSeconds < 0 || gapSeconds > maxGapSeconds) return false;
+
+        const mergedDuration = Math.max(1, Math.floor((nextEnd - Date.parse(last.start_ts)) / 1000));
+        last.end_ts = nextRecord.end_ts;
+        last.duration_sec = mergedDuration;
+        return true;
+    }
+
+    normalizeNamespace(value) {
+        return String(value || 'default')
+            .replace(/[^a-zA-Z0-9_-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '') || 'default';
     }
 }
 

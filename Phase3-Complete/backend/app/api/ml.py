@@ -2,12 +2,13 @@
 ML Classification API Routes - Phase 3
 Review and approve ML-assisted classifications
 """
-from typing import List, Optional
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.pagination import build_paginated_response
 from app.core.security import get_current_manager
 from app.models.user import User
 from app.models.integrations import MLClassification
@@ -35,10 +36,11 @@ class MLApprovalRequest(BaseModel):
     label: Optional[str] = None
 
 
-@router.get("/classifications", response_model=List[MLClassificationResponse])
+@router.get("/classifications")
 async def list_classifications(
     status: str = Query(default="pending", pattern="^(pending|approved|all)$"),
-    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_manager),
 ):
@@ -54,8 +56,14 @@ async def list_classifications(
     elif status == "approved":
         query = query.filter(MLClassification.is_approved == True)
 
-    items = query.order_by(MLClassification.created_at.desc()).limit(limit).all()
-    return items
+    total = query.count()
+    items = query.order_by(MLClassification.created_at.desc(), MLClassification.id.desc()).offset(offset).limit(limit).all()
+    return build_paginated_response(
+        [MLClassificationResponse.model_validate(item).model_dump() for item in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/classifications/{classification_id}/approve")

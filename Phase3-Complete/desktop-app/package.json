@@ -2,11 +2,12 @@
   "name": "employee-activity-tracker",
   "version": "1.0.0",
   "description": "Privacy-Preserving Employee Activity Tracker Desktop App",
+  "author": "Yaseen",
   "main": "src/main/index.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron .\"",
-    "dev:renderer": "vite",
+    "start": "node scripts/launch-electron.js",
+    "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://127.0.0.1:5173 && node scripts/launch-electron.js\"",
+    "dev:renderer": "CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=700 vite --host 127.0.0.1",
     "build": "vite build && electron-builder",
     "build:win": "vite build && electron-builder --win",
     "build:mac": "vite build && electron-builder --mac",
@@ -33,6 +34,7 @@
     },
     "linux": {
       "target": "AppImage",
+      "category": "Office",
       "icon": "assets/icon.png"
     },
     "nsis": {

@@ -48,7 +48,7 @@ Amina FYP/
 │   ├── + Weekly Trends
 │   └── README.md
 │
-├── Phase3-Complete/            # Production-Ready Complete System
+├── Phase3-Complete/            # Integrated release-candidate system
 │   ├── (all Phase 2 components)
 │   ├── + Slack Integration
 │   ├── + Jira Integration
@@ -94,15 +94,14 @@ Amina FYP/
 - Weekly trend visualization
 - Historical data analysis
 
-### Phase 3: Complete (Production-Ready)
+### Phase 3: Integrated Release Candidate
 
 **New Features:**
-- **Slack Integration**: Alerts & daily summaries
-- **Jira Integration**: Issue sync & time logging
+- **Slack Integration APIs/UI**: Configuration, connectivity testing, and worker-driven alert delivery
+- **Jira Integration APIs/UI**: Configuration and connectivity testing for future exports
 - **Google SSO**: Single sign-on with Google Workspace
 - **Microsoft SSO**: Single sign-on with Microsoft 365
-- **ML Classification**: AI-assisted domain/app categorization
-- Manager approval workflow for ML suggestions
+- **ML Classification Review**: Suggested classifications are generated from uncategorized ingest and reviewed by managers
 
 ---
 
@@ -145,7 +144,7 @@ Amina FYP/
 ### 1. Start Backend (Phase 3)
 
 ```bash
-cd Phase3-Complete/backend
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/backend"
 
 # Using Docker (recommended)
 docker-compose up -d
@@ -154,41 +153,107 @@ docker-compose up -d
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
+
+#### New commands to run backend
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/backend"
+uvicorn app.main:app --reload
+
 
 ### 2. Start Webcam Service
 
 ```bash
-cd Phase3-Complete/webcam-service
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
+#### New commands to run webcam
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
+.venv/bin/python main.py
+
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
+.venv/bin/python main.py
+
+
 
 ### 3. Start Desktop App
 
 ```bash
-cd Phase3-Complete/desktop-app
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/desktop-app"
 npm install
 npm run dev
 ```
+
+#### New Commands to run desktop App:
+cd "/home/yaseen/Docd "/home/yaseen/Downloads/Amina FYe3-Complete/desktop-a
+P/Amina FYP/Phase3-Complete/desktop-app" run dev
+npm run dev 
+
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/desktop-app"
+npm run dev
+
 
 ### 4. Start Manager Portal
 
 ```bash
-cd Phase3-Complete/manager-portal
+cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/manager-portal"
 npm install
 npm run dev
 ```
 
-### 5. Install Browser Extension
+### 5. Start Alert Worker
+
+```bash
+cd Phase3-Complete/backend
+python -m app.workers.operational_jobs --interval 300
+```
+
+### 6. Install Browser Extension
 
 1. Go to `chrome://extensions/`
 2. Enable "Developer mode"
 3. Click "Load unpacked"
 4. Select `Phase3-Complete/browser-extension`
+
+### 7. Local Demo Bootstrap
+
+For a supervised local demo, the validated startup order is:
+
+1. Backend migration
+2. Backend API
+3. Alert worker
+4. Webcam service
+5. Manager portal
+6. Desktop app
+7. Browser extension
+
+There is a helper script for this flow:
+
+```bash
+cd Phase3-Complete
+./run-demo.sh --reset-demo-db
+```
+
+Stop the stack with:
+
+```bash
+./stop-demo.sh
+```
+
+Headless-safe validation path:
+
+```bash
+./run-demo.sh --reset-demo-db --skip-desktop
+```
+
+Notes:
+- The helper uses an isolated demo database at `Phase3-Complete/backend/demo_staging.db`
+- The current “today” and date-picker behavior follows UTC ISO day strings used by the desktop and manager UIs
+- See `Phase3-Complete/DEMO_RUNBOOK.md` for the validated demo scenario and recovery steps
 
 ---
 
@@ -249,7 +314,7 @@ Proprietary - All rights reserved.
 
 ## 👩‍💻 Developer
 
-**Amina** - Final Year Project
+**Yaseen** - Final Year Project
 
 ---
 

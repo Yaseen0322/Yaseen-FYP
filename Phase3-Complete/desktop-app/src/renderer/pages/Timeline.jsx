@@ -1,23 +1,46 @@
 import React, { useEffect, useState } from 'react';
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function Timeline() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [timeline, setTimeline] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
     loadTimeline();
   }, [selectedDate]);
 
-  const loadTimeline = async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const isToday = selectedDate === getLocalDateString();
+    if (!isToday) return undefined;
+
+    const interval = setInterval(() => loadTimeline(false), 3000);
+    const unsubscribeTracking = window.electronAPI.onTrackingUpdate(() => loadTimeline(false));
+    const unsubscribe = window.electronAPI.onSyncComplete(() => loadTimeline(false));
+    return () => {
+      clearInterval(interval);
+      if (typeof unsubscribeTracking === 'function') unsubscribeTracking();
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [selectedDate]);
+
+  const loadTimeline = async (initial = true) => {
+    if (initial) setIsLoading(true);
     try {
       const data = await window.electronAPI.getTimeline(selectedDate);
       setTimeline(data);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Failed to load timeline:', error);
     } finally {
-      setIsLoading(false);
+      if (initial) setIsLoading(false);
     }
   };
 
@@ -30,9 +53,10 @@ function Timeline() {
   };
 
   const formatDuration = (seconds) => {
-    if (!seconds) return '0m';
+    if (!seconds || seconds < 0) return '0m';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours === 0 && minutes === 0 && seconds > 0) return '<1m';
     if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
   };
@@ -49,6 +73,8 @@ function Timeline() {
         return 'bg-gray-500/20 border-gray-500/50 text-gray-400';
       case 'app_usage':
         return 'bg-blue-500/20 border-blue-500/50 text-blue-400';
+      case 'browser_usage':
+        return 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400';
       default:
         return 'bg-white/5 border-white/20 text-white/60';
     }
@@ -61,6 +87,7 @@ function Timeline() {
       case 'idle': return '💤';
       case 'camera_off': return '📷';
       case 'app_usage': return '💻';
+      case 'browser_usage': return '🌐';
       default: return '•';
     }
   };
@@ -72,6 +99,7 @@ function Timeline() {
       case 'idle': return 'Idle';
       case 'camera_off': return 'Camera Off';
       case 'app_usage': return 'Active';
+      case 'browser_usage': return 'Website';
       default: return type;
     }
   };
@@ -83,6 +111,11 @@ function Timeline() {
         <div>
           <h1 className="text-3xl font-display font-bold text-white">Timeline</h1>
           <p className="text-white/40 mt-1">Your activity timeline for the day</p>
+          {lastUpdated && (
+            <p className="text-white/30 text-xs mt-1">
+              Updated: {lastUpdated.toLocaleTimeString()}
+            </p>
+          )}
         </div>
         <input
           type="date"
@@ -94,7 +127,7 @@ function Timeline() {
 
       {/* Timeline Legend */}
       <div className="flex flex-wrap gap-4">
-        {['present', 'absent', 'idle', 'camera_off', 'app_usage'].map((type) => (
+        {['present', 'absent', 'idle', 'camera_off', 'app_usage', 'browser_usage'].map((type) => (
           <div key={type} className="flex items-center gap-2">
             <span className={`w-3 h-3 rounded-full ${getBlockStyle(type).replace('bg-', 'bg-').split(' ')[0].replace('/20', '')}`}></span>
             <span className="text-sm text-white/60">{getBlockLabel(type)}</span>
@@ -124,6 +157,12 @@ function Timeline() {
                     <span className="font-medium">{getBlockLabel(block.type)}</span>
                     {block.details?.app_name && (
                       <span className="text-sm opacity-70">• {block.details.app_name}</span>
+                    )}
+                    {block.details?.domain && (
+                      <span className="text-sm opacity-70">
+                        • {block.details.domain}
+                        {block.details.label ? ` (${block.details.label})` : ''}
+                      </span>
                     )}
                   </div>
                   <p className="text-sm opacity-60 mt-1">

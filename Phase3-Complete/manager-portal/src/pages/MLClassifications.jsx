@@ -1,27 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
+import PaginationControls from '../components/PaginationControls';
 
 function MLClassifications() {
   const [classifications, setClassifications] = useState([]);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
   const [draftLabels, setDraftLabels] = useState({});
   const [error, setError] = useState(null);
+  const [feedback, setFeedback] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [limit] = useState(10);
 
   useEffect(() => {
     loadData();
-  }, [filter]);
+  }, [filter, offset]);
 
   const loadData = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/ml/classifications?status=${filter}`);
-      setClassifications(response.data);
+      const response = await api.get('/ml/classifications', {
+        params: { status: filter, limit, offset }
+      });
+      setClassifications(response.data.items);
+      setTotal(response.data.total);
     } catch (error) {
       const message = error.response?.data?.detail || 'Failed to load classifications';
       console.error(message, error);
       setClassifications([]);
+      setTotal(0);
       setError(message);
     } finally {
       setIsLoading(false);
@@ -30,9 +39,11 @@ function MLClassifications() {
 
   const handleApprove = async (id) => {
     setError(null);
+    setFeedback('');
     const selected = draftLabels[id];
     try {
       await api.post(`/ml/classifications/${id}/approve`, { label: selected || null });
+      setFeedback('Classification approved.');
       await loadData();
     } catch (error) {
       const message = error.response?.data?.detail || 'Failed to approve classification';
@@ -43,14 +54,22 @@ function MLClassifications() {
 
   const handleReject = async (id) => {
     setError(null);
+    setFeedback('');
     try {
       await api.delete(`/ml/classifications/${id}`);
+      setFeedback('Classification removed.');
       await loadData();
     } catch (error) {
       const message = error.response?.data?.detail || 'Failed to delete classification';
       console.error(message, error);
       setError(message);
     }
+  };
+
+  const handleFilterChange = (nextFilter) => {
+    setFilter(nextFilter);
+    setOffset(0);
+    setFeedback('');
   };
 
   const getLabelStyle = (label) => {
@@ -93,7 +112,18 @@ function MLClassifications() {
 
       {error && (
         <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-700">
-          {error}
+          <div className="flex items-center justify-between gap-4">
+            <span>{error}</span>
+            <button onClick={loadData} className="font-medium text-rose-700 hover:text-rose-800">
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {feedback && !error && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-emerald-700">
+          {feedback}
         </div>
       )}
 
@@ -102,7 +132,7 @@ function MLClassifications() {
         {['pending', 'approved', 'all'].map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => handleFilterChange(f)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === f
                 ? 'bg-primary-100 text-primary-700'
@@ -198,13 +228,20 @@ function MLClassifications() {
               )) : (
                 <tr>
                   <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
-                    No classifications to review
+                    No classifications match this filter.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          total={total}
+          limit={limit}
+          offset={offset}
+          label="classifications"
+          onPageChange={setOffset}
+        />
       </div>
     </div>
   );

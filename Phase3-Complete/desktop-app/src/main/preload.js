@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTrackingStatus: () => ipcRenderer.invoke('tracking:getStatus'),
     pauseTracking: () => ipcRenderer.invoke('tracking:pause'),
     resumeTracking: () => ipcRenderer.invoke('tracking:resume'),
+    syncNow: () => ipcRenderer.invoke('sync:now'),
     
     // Reports
     getTodaySummary: () => ipcRenderer.invoke('reports:getTodaySummary'),
@@ -30,9 +31,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     
     // Events
     onTrackingUpdate: (callback) => {
-        ipcRenderer.on('tracking:update', (event, data) => callback(data));
+        const listener = (event, data) => callback(data);
+        ipcRenderer.on('tracking:update', listener);
+        return () => ipcRenderer.removeListener('tracking:update', listener);
     },
     onSyncComplete: (callback) => {
-        ipcRenderer.on('sync:complete', (event, data) => callback(data));
+        const listener = (event, data) => callback(data);
+        ipcRenderer.on('sync:complete', listener);
+        return () => ipcRenderer.removeListener('sync:complete', listener);
     }
 });

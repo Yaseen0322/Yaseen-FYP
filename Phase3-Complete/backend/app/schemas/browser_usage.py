@@ -2,6 +2,7 @@
 Browser Usage and Domain Rule Schemas
 """
 from pydantic import BaseModel
+from pydantic import Field
 from typing import Optional, List, Dict
 from datetime import datetime
 
@@ -39,7 +40,14 @@ class DomainRuleCreate(BaseModel):
     domain: str
     category: str
     label: str  # productive, unproductive, neutral
-    dept_overrides_json: Optional[Dict] = {}
+    dept_overrides_json: Optional[Dict] = Field(default_factory=dict)
+
+
+class DomainRuleUpdate(BaseModel):
+    domain: Optional[str] = None
+    category: Optional[str] = None
+    label: Optional[str] = None
+    dept_overrides_json: Optional[Dict] = None
 
 
 class DomainRuleResponse(BaseModel):

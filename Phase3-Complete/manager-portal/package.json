@@ -4,7 +4,7 @@
   "description": "Manager Dashboard for Employee Activity Tracker",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=700 vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview"
   },
