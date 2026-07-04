@@ -247,9 +247,9 @@ Proprietary - All rights reserved.
 
 ---
 
-## 👩‍💻 Developer
+## Developer
 
-**Amina** - Final Year Project
+**Yaseen** - Final Year Project
 
 ---
 
