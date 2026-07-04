@@ -143,7 +143,7 @@ function classifyApp(appName) {
 }
 
 function classifyDomain(domain) {
-    const value = String(domain || '').toLowerCase();
+    const value = normalizeDomain(domain);
     for (const pattern of DOMAIN_PATTERNS) {
         if (pattern.domains.some((candidate) => value.includes(candidate))) {
             return { category: pattern.category, label: pattern.label };
@@ -155,6 +155,14 @@ function classifyDomain(domain) {
         }
     }
     return { category: 'Other', label: 'neutral' };
+}
+
+function normalizeDomain(domain) {
+    return String(domain || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^\.+|\.+$/g, '')
+        .replace(/^www\./, '');
 }
 
 function currentRecordFromTracker(stats) {
@@ -263,8 +271,9 @@ function buildLocalDailySummary(localStorage, dateString, liveState = {}) {
         const interval = clipInterval(record.start_ts, record.end_ts, rangeStart, rangeEnd);
         if (!interval) continue;
 
-        const classification = classifyDomain(record.domain);
-        const key = `${record.domain}|${classification.category}|${classification.label}`;
+        const domain = normalizeDomain(record.domain);
+        const classification = classifyDomain(domain);
+        const key = `${domain}|${classification.category}|${classification.label}`;
         topDomains.set(key, (topDomains.get(key) || 0) + durationSec(interval));
 
         if (!productivityByLabel.has(classification.label)) productivityByLabel.set(classification.label, []);
@@ -327,16 +336,19 @@ function buildLocalTimeline(localStorage, dateString, liveState = {}) {
         pushBlock('app_usage', record, { app_name: record.app_name });
     }
     for (const record of records.browserUsage) {
-        const classification = classifyDomain(record.domain);
+        const domain = normalizeDomain(record.domain);
+        const classification = classifyDomain(domain);
         pushBlock('browser_usage', record, {
-            domain: record.domain,
+            domain,
             category: classification.category,
             label: classification.label
         });
     }
 
-    blocks.sort((a, b) => new Date(b.start_ts) - new Date(a.start_ts));
-    return { date: dateString, blocks };
+    return {
+        date: dateString,
+        blocks: coalesceTimelineBlocks(blocks).sort((a, b) => new Date(b.start_ts) - new Date(a.start_ts))
+    };
 }
 
 function mergeSummaries(serverSummary, localSummary) {
@@ -390,10 +402,10 @@ function mergeSummaries(serverSummary, localSummary) {
 }
 
 function mergeTimelines(serverTimeline, localTimeline) {
-    const blocks = dedupeTimelineBlocks([
+    const blocks = coalesceTimelineBlocks(dedupeTimelineBlocks([
         ...((serverTimeline && serverTimeline.blocks) || []),
         ...((localTimeline && localTimeline.blocks) || [])
-    ]).sort((a, b) => new Date(b.start_ts) - new Date(a.start_ts));
+    ])).sort((a, b) => new Date(b.start_ts) - new Date(a.start_ts));
 
     return {
         date: localTimeline?.date || serverTimeline?.date || getLocalDateString(),
@@ -423,11 +435,51 @@ function dedupeTimelineBlocks(blocks) {
     return deduped;
 }
 
+function detailsKey(block) {
+    if (!block.details) return '';
+    return JSON.stringify(block.details, Object.keys(block.details).sort());
+}
+
+function coalesceTimelineBlocks(blocks, maxGapMs = 3000) {
+    const ordered = [...blocks]
+        .filter((block) => block && block.start_ts && block.end_ts)
+        .sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts));
+    const buckets = new Map();
+
+    for (const block of ordered) {
+        const normalized = { ...block };
+        const bucketKey = `${normalized.type}|${detailsKey(normalized)}`;
+        if (!buckets.has(bucketKey)) buckets.set(bucketKey, []);
+        const bucket = buckets.get(bucketKey);
+        const last = bucket[bucket.length - 1];
+
+        if (!last) {
+            bucket.push(normalized);
+            continue;
+        }
+
+        const gapMs = new Date(normalized.start_ts).getTime() - new Date(last.end_ts).getTime();
+        if (gapMs <= maxGapMs) {
+            if (new Date(normalized.end_ts) > new Date(last.end_ts)) {
+                last.end_ts = normalized.end_ts;
+            }
+            last.duration_sec = Math.max(1, Math.floor(
+                (new Date(last.end_ts).getTime() - new Date(last.start_ts).getTime()) / 1000
+            ));
+        } else {
+            bucket.push(normalized);
+        }
+    }
+
+    return [...buckets.values()].flat();
+}
+
 module.exports = {
     buildLocalDailySummary,
     buildLocalTimeline,
     classifyApp,
     classifyDomain,
+    coalesceTimelineBlocks,
     getLocalDateString,
     mergeSummaries,
     mergeTimelines

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = Field(default_factory=list)
     
     # Database - defaults to SQLite for testing, use PostgreSQL in production
-    DATABASE_URL: str = "sqlite:///./activity_tracker.db"
+    DATABASE_URL: str = "sqlite:///activity_tracker.db"
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

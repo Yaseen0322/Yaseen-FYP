@@ -29,7 +29,7 @@ A desktop-based productivity monitoring system for software houses that tracks e
 ## 📁 Project Structure
 
 ```
-Amina FYP/
+Yaseen FYP/
 ├── SRS/                        # Original requirements document
 │   └── project stack.docx
 │
@@ -144,38 +144,42 @@ Amina FYP/
 ### 1. Start Backend (Phase 3)
 
 ```bash
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/backend"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/backend"
 
 # Using Docker (recommended)
 docker-compose up -d
 
 # Or manually
 python -m venv venv
-source venv/bin/activate
+source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
 #### New commands to run backend
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/backend"
+1:
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP"
+source .venv/bin/activate
+2:
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/backend"
 uvicorn app.main:app --reload
 
 
 ### 2. Start Webcam Service
 
 ```bash
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/webcam-service"
 python -m venv venv
-source venv/bin/activate
+source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 #### New commands to run webcam
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/webcam-service"
 .venv/bin/python main.py
 
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/webcam-service"
 .venv/bin/python main.py
 
 
@@ -183,24 +187,21 @@ cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/webcam-service"
 ### 3. Start Desktop App
 
 ```bash
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/desktop-app"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/desktop-app"
 npm install
 npm run dev
 ```
 
 #### New Commands to run desktop App:
-cd "/home/yaseen/Docd "/home/yaseen/Downloads/Amina FYe3-Complete/desktop-a
-P/Amina FYP/Phase3-Complete/desktop-app" run dev
-npm run dev 
 
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/desktop-app"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/desktop-app"
 npm run dev
 
 
 ### 4. Start Manager Portal
 
 ```bash
-cd "/home/yaseen/Downloads/Amina FYP/Amina FYP/Phase3-Complete/manager-portal"
+cd "/home/yaseen/Downloads/Yaseen FYP/Yaseen FYP/Phase3-Complete/manager-portal"
 npm install
 npm run dev
 ```

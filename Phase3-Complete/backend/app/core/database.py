@@ -2,6 +2,7 @@
 Database configuration, session management, and migration verification.
 """
 from pathlib import Path
+from urllib.parse import unquote
 
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
@@ -12,19 +13,43 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from .config import settings
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BASE_DIR = BACKEND_ROOT
+DEFAULT_SQLITE_DATABASE = "activity_tracker.db"
+
+
+def sqlite_file_url(database_path: Path) -> str:
+    """
+    Build a Linux-safe SQLAlchemy SQLite URL for an absolute filesystem path.
+    Absolute paths require four leading slashes: sqlite:////home/user/app.db
+    """
+    absolute_path = database_path.expanduser().resolve()
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:////{absolute_path.as_posix().lstrip('/')}"
 
 
 def normalize_database_url(database_url: str) -> str:
     if not database_url.startswith("sqlite:///"):
         return database_url
 
-    sqlite_path = database_url.removeprefix("sqlite:///")
-    if sqlite_path == ":memory:" or Path(sqlite_path).is_absolute():
+    sqlite_path = unquote(database_url.removeprefix("sqlite:///"))
+    if sqlite_path == ":memory:":
         return database_url
 
-    resolved_path = (BASE_DIR / sqlite_path).resolve()
-    return f"sqlite:///{resolved_path}"
+    if not sqlite_path:
+        sqlite_path = DEFAULT_SQLITE_DATABASE
+
+    path = Path(sqlite_path).expanduser()
+    if path.is_absolute():
+        if path.exists() or path.parent.exists():
+            return sqlite_file_url(path)
+
+        # A renamed project folder can leave .env pointing at the old absolute
+        # directory. Preserve the intended database filename but re-home it to
+        # the current backend root instead of crashing on a missing parent.
+        return sqlite_file_url(BACKEND_ROOT / path.name)
+
+    return sqlite_file_url(BACKEND_ROOT / path)
 
 
 def get_engine_kwargs(database_url: str) -> dict:

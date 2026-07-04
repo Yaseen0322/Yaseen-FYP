@@ -13,6 +13,7 @@ class DataSync {
         this.syncInterval = options.syncInterval || 60000; // 1 minute
         this.onSyncComplete = typeof options.onSyncComplete === 'function' ? options.onSyncComplete : null;
         this.onSyncError = typeof options.onSyncError === 'function' ? options.onSyncError : null;
+        this.beforeSync = typeof options.beforeSync === 'function' ? options.beforeSync : null;
         this.request = typeof options.request === 'function' ? options.request : null;
         
         this.isRunning = false;
@@ -48,6 +49,14 @@ class DataSync {
             console.log('[DataSync] No device ID, skipping sync');
             this.scheduleNext();
             return;
+        }
+
+        if (this.beforeSync) {
+            try {
+                this.beforeSync();
+            } catch (error) {
+                console.error('[DataSync] Pre-sync flush failed:', error.message);
+            }
         }
         
         const counts = this.localStorage.getUnsyncedCounts

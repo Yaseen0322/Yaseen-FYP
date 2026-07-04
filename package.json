@@ -1,8 +1,8 @@
 {
-  "name": "amina-fyp-root",
+  "name": "Yaseen-fyp-root",
   "version": "1.0.0",
   "private": true,
-  "description": "Consolidated Node dependencies for Amina FYP (desktop app + manager portal + tooling).",
+  "description": "Consolidated Node dependencies for Yaseen FYP (desktop app + manager portal + tooling).",
   "scripts": {
     "demo:start": "cd Phase3-Complete && ./run-demo.sh",
     "demo:stop": "cd Phase3-Complete && ./stop-demo.sh",

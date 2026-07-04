@@ -19,19 +19,19 @@ DEMO_PASSWORD = "Password@123"
 
 DEMO_USERS = [
     {
-        "email": "manager@aminafyp.com",
+        "email": "manager@Yaseenfyp.com",
         "name": "Demo Manager",
         "employee_id": "MGR-001",
         "role": "manager",
     },
     {
-        "email": "employee1@aminafyp.com",
+        "email": "employee1@Yaseenfyp.com",
         "name": "Demo Employee One",
         "employee_id": "EMP-001",
         "role": "employee",
     },
     {
-        "email": "employee2@aminafyp.com",
+        "email": "employee2@Yaseenfyp.com",
         "name": "Demo Employee Two",
         "employee_id": "EMP-002",
         "role": "employee",
@@ -45,7 +45,7 @@ def get_or_create_org(db):
         return org
 
     org = Organization(
-        name="Amina FYP Demo Organization",
+        name="Yaseen FYP Demo Organization",
         timezone="Asia/Karachi",
         retention_days=90,
         is_active=True,

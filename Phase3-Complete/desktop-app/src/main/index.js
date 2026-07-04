@@ -354,6 +354,7 @@ function startSessionServices({ user, authToken }) {
     dataSync = new DataSync(localStorage, authToken, {
         baseUrl: getApiBaseUrl(),
         syncInterval: getSyncIntervalMs(),
+        beforeSync: flushLiveTrackingNow,
         request: (config) => apiRequest(config),
         onSyncComplete: (payload) => {
             if (mainWindow && !mainWindow.isDestroyed()) {

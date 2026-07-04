@@ -233,11 +233,11 @@ echo "Manager portal:   http://127.0.0.1:3000"
 echo "Demo database:    $DEMO_DATABASE_FILE"
 echo
 echo "Demo manager login:"
-echo "  manager@aminafyp.com / Password@123"
+echo "  manager@Yaseenfyp.com / Password@123"
 echo
 echo "Demo employee logins:"
-echo "  employee1@aminafyp.com / Password@123"
-echo "  employee2@aminafyp.com / Password@123"
+echo "  employee1@Yaseenfyp.com / Password@123"
+echo "  employee2@Yaseenfyp.com / Password@123"
 echo
 echo "Browser extension path:"
 echo "  $ROOT_DIR/browser-extension"

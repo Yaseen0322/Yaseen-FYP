@@ -20,6 +20,7 @@ class IdleDetector {
         this.idleStart = null;
         this.lastFlushedAt = null;
         this.lastIdleSignalAt = null;
+        this.powerMonitorHandlers = [];
     }
 
     start() {
@@ -27,6 +28,7 @@ class IdleDetector {
         
         this.isRunning = true;
         this.isPaused = false;
+        this.registerPowerMonitorEvents();
         this.check();
         
         console.log('[IdleDetector] Started with threshold:', this.idleThreshold, 'seconds');
@@ -40,6 +42,7 @@ class IdleDetector {
             clearTimeout(this.timer);
             this.timer = null;
         }
+        this.unregisterPowerMonitorEvents();
         
         // Save final idle interval if any
         this.finalizeIdleInterval();
@@ -58,6 +61,56 @@ class IdleDetector {
         console.log('[IdleDetector] Resumed');
     }
 
+    registerPowerMonitorEvents() {
+        if (this.powerMonitorHandlers.length > 0) return;
+
+        const handlers = [
+            ['lock-screen', () => this.enterIdle(0)],
+            ['suspend', () => this.enterIdle(0)],
+            ['user-did-resign-active', () => this.enterIdle(0)],
+            ['unlock-screen', () => this.exitIdle()],
+            ['resume', () => this.exitIdle()],
+            ['user-did-become-active', () => this.exitIdle()],
+        ];
+
+        for (const [eventName, handler] of handlers) {
+            try {
+                powerMonitor.on(eventName, handler);
+                this.powerMonitorHandlers.push([eventName, handler]);
+            } catch (_) {
+                // Some platforms do not emit every event; polling remains active.
+            }
+        }
+    }
+
+    unregisterPowerMonitorEvents() {
+        for (const [eventName, handler] of this.powerMonitorHandlers) {
+            try {
+                powerMonitor.removeListener(eventName, handler);
+            } catch (_) {
+                // Ignore platform-specific event removal issues.
+            }
+        }
+        this.powerMonitorHandlers = [];
+    }
+
+    enterIdle(backfillSec = 0) {
+        if (!this.isRunning || this.isPaused || this.isIdle) return;
+
+        const normalizedBackfill = Math.max(0, Math.floor(backfillSec || 0));
+        this.isIdle = true;
+        this.idleStart = new Date(Date.now() - (normalizedBackfill * 1000));
+        this.lastFlushedAt = this.idleStart;
+        this.lastIdleSignalAt = new Date();
+        console.log('[IdleDetector] User went idle');
+    }
+
+    exitIdle() {
+        if (!this.isRunning || !this.isIdle) return;
+        this.finalizeIdleInterval();
+        console.log('[IdleDetector] User became active');
+    }
+
     check() {
         if (!this.isRunning) return;
         
@@ -72,13 +125,9 @@ class IdleDetector {
                     // User is idle
                     if (!this.isIdle) {
                         // Transition to idle state
-                        this.isIdle = true;
                         // When idle_time is unavailable, use current time as conservative start.
                         const backfillSec = idleByTime ? this.idleThreshold : 0;
-                        this.idleStart = new Date(Date.now() - (backfillSec * 1000));
-                        this.lastFlushedAt = this.idleStart;
-                        this.lastIdleSignalAt = new Date();
-                        console.log('[IdleDetector] User went idle');
+                        this.enterIdle(backfillSec);
                     } else {
                         this.lastIdleSignalAt = new Date();
                         // Persist partial idle so reports update while still idle.
@@ -88,8 +137,7 @@ class IdleDetector {
                     // User is active
                     if (this.isIdle) {
                         // Was idle, now active - finalize interval
-                        this.finalizeIdleInterval();
-                        console.log('[IdleDetector] User became active');
+                        this.exitIdle();
                     }
                 }
             } catch (error) {
@@ -163,7 +211,7 @@ class IdleDetector {
             isRunning: this.isRunning,
             isPaused: this.isPaused,
             isIdle: this.isIdle,
-            idleSince: this.idleStart,
+            idleSince: this.lastFlushedAt || this.idleStart,
             idleThreshold: this.idleThreshold
         };
     }

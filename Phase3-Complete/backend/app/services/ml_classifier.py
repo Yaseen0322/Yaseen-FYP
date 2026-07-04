@@ -7,6 +7,14 @@ from sqlalchemy.orm import Session
 from app.models.browser_usage import DomainRule
 from app.models.integrations import MLClassification
 
+
+def normalize_domain(domain: str) -> str:
+    normalized = (domain or "").strip().lower().rstrip(".")
+    if normalized.startswith("www."):
+        normalized = normalized[4:]
+    return normalized
+
+
 DOMAIN_PATTERNS = [
     {
         "label": "productive",
@@ -74,7 +82,7 @@ def classify_domain_by_patterns(domain: str) -> Tuple[str, str, int]:
     """
     Pure pattern-based domain classification for read-only reporting paths.
     """
-    normalized_domain = domain.strip().lower()
+    normalized_domain = normalize_domain(domain)
 
     for pattern in DOMAIN_PATTERNS:
         if any(candidate in normalized_domain for candidate in pattern.get("domains", [])):
@@ -122,7 +130,7 @@ class MLClassifier:
         Classify a domain as productive/unproductive/neutral
         Returns: (category, label, confidence)
         """
-        normalized_domain = domain.strip().lower()
+        normalized_domain = normalize_domain(domain)
         
         # Check cache first
         cache_key = f"domain:{normalized_domain}:{org_id}"
@@ -132,7 +140,7 @@ class MLClassifier:
         # Check existing rules in database
         rule = self.db.query(DomainRule).filter(
             DomainRule.org_id == org_id,
-            DomainRule.domain == domain
+            DomainRule.domain == normalized_domain
         ).first()
         
         if rule:

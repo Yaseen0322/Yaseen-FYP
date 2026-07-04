@@ -296,7 +296,7 @@ def build_timeline_blocks(db: Session, user_id: int, target_date: date) -> list[
             },
         })
 
-    blocks = _dedupe_timeline_blocks(blocks)
+    blocks = _coalesce_timeline_blocks(_dedupe_timeline_blocks(blocks))
     blocks.sort(key=lambda item: item["start_ts"], reverse=True)
     return blocks
 
@@ -319,6 +319,42 @@ def _dedupe_timeline_blocks(blocks: list[dict]) -> list[dict]:
         seen.add(key)
         deduped.append(block)
     return deduped
+
+
+def _timeline_details_key(block: dict) -> tuple:
+    details = block.get("details") or {}
+    return tuple(sorted(details.items()))
+
+
+def _coalesce_timeline_blocks(blocks: list[dict], max_gap_seconds: int = 3) -> list[dict]:
+    if not blocks:
+        return []
+
+    ordered = sorted(blocks, key=lambda item: as_utc(item["start_ts"]))
+    buckets: dict[tuple, list[dict]] = {}
+
+    for block in ordered:
+        bucket_key = (block["type"], _timeline_details_key(block))
+        bucket = buckets.setdefault(bucket_key, [])
+
+        if not bucket:
+            bucket.append(dict(block))
+            continue
+
+        last = bucket[-1]
+        gap_seconds = (as_utc(block["start_ts"]) - as_utc(last["end_ts"])).total_seconds()
+
+        if gap_seconds <= max_gap_seconds:
+            if as_utc(block["end_ts"]) > as_utc(last["end_ts"]):
+                last["end_ts"] = block["end_ts"]
+            last["duration_sec"] = _duration_seconds((
+                as_utc(last["start_ts"]),
+                as_utc(last["end_ts"]),
+            ))
+        else:
+            bucket.append(dict(block))
+
+    return [block for bucket in buckets.values() for block in bucket]
 
 
 def upsert_daily_summary(db: Session, user_id: int, target_date: date) -> DailySummary:

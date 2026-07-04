@@ -35,10 +35,24 @@ function isTrackableUrl(url) {
 function extractDomain(url) {
     try {
         const urlObj = new URL(url);
-        return urlObj.hostname;
+        return normalizeDomain(urlObj.hostname);
     } catch {
         return null;
     }
+}
+
+function normalizeDomain(hostname) {
+    const domain = String(hostname || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^\.+|\.+$/g, '')
+        .replace(/^www\./, '');
+
+    if (!domain || domain === 'localhost' || !domain.includes('.')) {
+        return null;
+    }
+
+    return domain;
 }
 
 // Get browser name

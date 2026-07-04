@@ -351,6 +351,164 @@ class Phase2ReportingTests(unittest.TestCase):
         self.assertEqual(response.json()["date"], target_day.isoformat())
         self.assertEqual(response.json()["focus_sec"], 600)
 
+    def test_ingest_is_idempotent_for_idle_and_browser_usage(self):
+        org = self._create_org()
+        user = self._create_user(org.id, "employee@example.com")
+        device = self._create_device(user.id)
+        target_day = date.today()
+
+        idle_payload = {
+            "items": [
+                {
+                    "device_id": device.id,
+                    "start_ts": self._dt(target_day, 10, 0).isoformat(),
+                    "end_ts": self._dt(target_day, 10, 2).isoformat(),
+                    "duration_sec": 120,
+                }
+            ]
+        }
+        browser_payload = {
+            "items": [
+                {
+                    "device_id": device.id,
+                    "browser": "Chrome",
+                    "domain": "www.youtube.com",
+                    "start_ts": self._dt(target_day, 10, 5).isoformat(),
+                    "end_ts": self._dt(target_day, 10, 8).isoformat(),
+                    "duration_sec": 180,
+                }
+            ]
+        }
+
+        for _ in range(2):
+            idle_response = self._request(
+                "POST",
+                "/api/v1/ingest/idle-intervals",
+                json=idle_payload,
+                headers=self._headers_for(user.id),
+            )
+            browser_response = self._request(
+                "POST",
+                "/api/v1/ingest/browser-usage",
+                json=browser_payload,
+                headers=self._headers_for(user.id),
+            )
+            self.assertEqual(idle_response.status_code, 200)
+            self.assertEqual(browser_response.status_code, 200)
+
+        db = self.SessionLocal()
+        idle_count = db.query(IdleInterval).filter(IdleInterval.user_id == user.id).count()
+        browser_rows = db.query(BrowserUsage).filter(BrowserUsage.user_id == user.id).all()
+        db.close()
+
+        self.assertEqual(idle_count, 1)
+        self.assertEqual(len(browser_rows), 1)
+        self.assertEqual(browser_rows[0].domain, "youtube.com")
+        self.assertEqual(browser_rows[0].label, "unproductive")
+
+        summary_response = self._request(
+            "GET",
+            "/api/v1/me/summary",
+            params={"target_date": target_day.isoformat()},
+            headers=self._headers_for(user.id),
+        )
+        summary = summary_response.json()
+        self.assertEqual(summary["idle_sec"], 120)
+        self.assertEqual(summary["top_domains"][0]["domain"], "youtube.com")
+        self.assertEqual(summary["top_domains"][0]["duration_sec"], 180)
+
+        timeline_response = self._request(
+            "GET",
+            "/api/v1/me/timeline",
+            params={"target_date": target_day.isoformat()},
+            headers=self._headers_for(user.id),
+        )
+        blocks = timeline_response.json()["blocks"]
+        self.assertEqual(len([block for block in blocks if block["type"] == "idle"]), 1)
+        self.assertEqual(len([block for block in blocks if block["type"] == "browser_usage"]), 1)
+
+    def test_timeline_coalesces_contiguous_tracking_chunks(self):
+        org = self._create_org()
+        user = self._create_user(org.id, "employee@example.com")
+        device = self._create_device(user.id)
+        target_day = date.today()
+
+        db = self.SessionLocal()
+        db.add_all([
+            IdleInterval(
+                user_id=user.id,
+                device_id=device.id,
+                start_ts=self._dt(target_day, 10, 0),
+                end_ts=self._dt(target_day, 10, 1),
+                duration_sec=60,
+            ),
+            IdleInterval(
+                user_id=user.id,
+                device_id=device.id,
+                start_ts=self._dt(target_day, 10, 1),
+                end_ts=self._dt(target_day, 10, 2),
+                duration_sec=60,
+            ),
+            BrowserUsage(
+                user_id=user.id,
+                device_id=device.id,
+                browser="Chrome",
+                domain="youtube.com",
+                start_ts=self._dt(target_day, 10, 5),
+                end_ts=self._dt(target_day, 10, 6),
+                duration_sec=60,
+                category="Social/Entertainment",
+                label="unproductive",
+            ),
+            BrowserUsage(
+                user_id=user.id,
+                device_id=device.id,
+                browser="Chrome",
+                domain="youtube.com",
+                start_ts=self._dt(target_day, 10, 6),
+                end_ts=self._dt(target_day, 10, 8),
+                duration_sec=120,
+                category="Social/Entertainment",
+                label="unproductive",
+            ),
+            PresenceInterval(
+                user_id=user.id,
+                device_id=device.id,
+                state="camera_off",
+                start_ts=self._dt(target_day, 10, 0),
+                end_ts=self._dt(target_day, 10, 1),
+                duration_sec=60,
+            ),
+            PresenceInterval(
+                user_id=user.id,
+                device_id=device.id,
+                state="present",
+                start_ts=self._dt(target_day, 10, 1),
+                end_ts=self._dt(target_day, 10, 3),
+                duration_sec=120,
+            ),
+        ])
+        db.commit()
+        db.close()
+
+        response = self._request(
+            "GET",
+            "/api/v1/me/timeline",
+            params={"target_date": target_day.isoformat()},
+            headers=self._headers_for(user.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        blocks = response.json()["blocks"]
+        idle_blocks = [block for block in blocks if block["type"] == "idle"]
+        browser_blocks = [block for block in blocks if block["type"] == "browser_usage"]
+        self.assertEqual(len(idle_blocks), 1)
+        self.assertEqual(idle_blocks[0]["duration_sec"], 120)
+        self.assertEqual(len(browser_blocks), 1)
+        self.assertEqual(browser_blocks[0]["duration_sec"], 180)
+        self.assertEqual(len([block for block in blocks if block["type"] == "camera_off"]), 1)
+        self.assertEqual(len([block for block in blocks if block["type"] == "present"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

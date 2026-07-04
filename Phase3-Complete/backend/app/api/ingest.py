@@ -4,7 +4,7 @@ Receives tracking data from desktop agents
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Dict, Iterable
+from typing import Iterable
 from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.core.dates import to_app_timezone
@@ -21,6 +21,32 @@ from app.services.ml_classifier import get_classifier
 from app.services.reporting import refresh_daily_summaries
 
 router = APIRouter()
+
+
+def normalize_domain(value: str) -> str:
+    domain = (value or "").strip().lower().rstrip(".")
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain
+
+
+def domain_matches_rule(domain: str, rule_domain: str) -> bool:
+    rule = normalize_domain(rule_domain)
+    if not domain or not rule:
+        return False
+
+    if rule.startswith("*."):
+        suffix = rule[2:]
+        return domain == suffix or domain.endswith(f".{suffix}")
+
+    return domain == rule or domain.endswith(f".{rule}")
+
+
+def find_domain_rule(domain: str, rules: Iterable[DomainRule]) -> DomainRule | None:
+    matches = [rule for rule in rules if domain_matches_rule(domain, rule.domain)]
+    if not matches:
+        return None
+    return max(matches, key=lambda rule: len(normalize_domain(rule.domain).lstrip("*.")))
 
 
 def validate_device(db: Session, device_id: int, user_id: int) -> Device:
@@ -85,6 +111,20 @@ def get_affected_dates(items: Iterable) -> set:
     return affected_dates
 
 
+def row_exists(db: Session, model, row: dict, identity_fields: tuple[str, ...]) -> bool:
+    query = db.query(model.id)
+    for field in identity_fields:
+        query = query.filter(getattr(model, field) == row[field])
+    return db.query(query.exists()).scalar()
+
+
+def filter_new_rows(db: Session, model, rows: list[dict], identity_fields: tuple[str, ...]) -> list[dict]:
+    return [
+        row for row in rows
+        if not row_exists(db, model, row, identity_fields)
+    ]
+
+
 @router.post("/app-usage")
 async def ingest_app_usage(
     data: AppUsageBatch,
@@ -116,7 +156,14 @@ async def ingest_app_usage(
     for app_name in {item.app_name.strip() for item in data.items if item.app_name and item.app_name.strip()}:
         classifier.classify_app(app_name=app_name, org_id=current_user.org_id)
 
-    db.bulk_insert_mappings(AppUsage, rows)
+    rows = filter_new_rows(
+        db,
+        AppUsage,
+        rows,
+        ("user_id", "device_id", "app_name", "window_title", "start_ts", "end_ts"),
+    )
+    if rows:
+        db.bulk_insert_mappings(AppUsage, rows)
     refresh_daily_summaries(db, current_user.id, get_affected_dates(data.items))
     db.commit()
     
@@ -148,7 +195,14 @@ async def ingest_idle_intervals(
         for item in data.items
     ]
 
-    db.bulk_insert_mappings(IdleInterval, rows)
+    rows = filter_new_rows(
+        db,
+        IdleInterval,
+        rows,
+        ("user_id", "device_id", "start_ts", "end_ts"),
+    )
+    if rows:
+        db.bulk_insert_mappings(IdleInterval, rows)
     refresh_daily_summaries(db, current_user.id, get_affected_dates(data.items))
     db.commit()
     
@@ -181,7 +235,14 @@ async def ingest_presence_intervals(
         for item in data.items
     ]
 
-    db.bulk_insert_mappings(PresenceInterval, rows)
+    rows = filter_new_rows(
+        db,
+        PresenceInterval,
+        rows,
+        ("user_id", "device_id", "state", "start_ts", "end_ts"),
+    )
+    if rows:
+        db.bulk_insert_mappings(PresenceInterval, rows)
     refresh_daily_summaries(db, current_user.id, get_affected_dates(data.items))
     db.commit()
     
@@ -202,17 +263,16 @@ async def ingest_browser_usage(
     
     device = validate_batch_items(data.items, current_user, db)
     
-    unique_domains = list({item.domain for item in data.items})
-    domain_rules = db.query(DomainRule).filter(
-        DomainRule.org_id == current_user.org_id,
-        DomainRule.domain.in_(unique_domains)
-    ).all()
-    rules_by_domain: Dict[str, DomainRule] = {rule.domain: rule for rule in domain_rules}
+    domain_rules = db.query(DomainRule).filter(DomainRule.org_id == current_user.org_id).all()
     classifier = get_classifier(db)
 
     rows = []
     for item in data.items:
-        rule = rules_by_domain.get(item.domain)
+        normalized_domain = normalize_domain(item.domain)
+        if not normalized_domain:
+            continue
+
+        rule = find_domain_rule(normalized_domain, domain_rules)
         if rule:
             if current_user.dept_id and rule.dept_overrides_json.get(str(current_user.dept_id)):
                 category, label = rule.category, rule.dept_overrides_json[str(current_user.dept_id)]
@@ -220,7 +280,7 @@ async def ingest_browser_usage(
                 category, label = rule.category, rule.label
         else:
             category, label, _confidence = classifier.classify_domain(
-                domain=item.domain,
+                domain=normalized_domain,
                 org_id=current_user.org_id,
                 dept_id=current_user.dept_id,
             )
@@ -228,7 +288,7 @@ async def ingest_browser_usage(
             "user_id": current_user.id,
             "device_id": device.id,
             "browser": item.browser,
-            "domain": item.domain,
+            "domain": normalized_domain,
             "start_ts": item.start_ts,
             "end_ts": item.end_ts,
             "duration_sec": item.duration_sec,
@@ -236,7 +296,14 @@ async def ingest_browser_usage(
             "label": label
         })
 
-    db.bulk_insert_mappings(BrowserUsage, rows)
+    rows = filter_new_rows(
+        db,
+        BrowserUsage,
+        rows,
+        ("user_id", "device_id", "browser", "domain", "start_ts", "end_ts"),
+    )
+    if rows:
+        db.bulk_insert_mappings(BrowserUsage, rows)
     refresh_daily_summaries(db, current_user.id, get_affected_dates(data.items))
     db.commit()
     

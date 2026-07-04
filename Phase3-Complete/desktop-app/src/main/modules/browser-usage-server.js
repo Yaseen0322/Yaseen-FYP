@@ -4,6 +4,37 @@
  */
 const http = require('http');
 
+function normalizeDomain(value) {
+    if (!value) return null;
+    let candidate = String(value).trim().toLowerCase();
+    if (!candidate) return null;
+
+    try {
+        if (!candidate.includes('://')) {
+            candidate = `https://${candidate}`;
+        }
+        candidate = new URL(candidate).hostname;
+    } catch (_) {
+        // Keep plain hostnames such as "github.com" if URL parsing fails.
+    }
+
+    candidate = candidate
+        .replace(/^\.+|\.+$/g, '')
+        .replace(/^www\./, '');
+
+    if (
+        !candidate ||
+        candidate === 'localhost' ||
+        candidate.includes('/') ||
+        candidate.includes(' ') ||
+        !candidate.includes('.')
+    ) {
+        return null;
+    }
+
+    return candidate;
+}
+
 class BrowserUsageServer {
     constructor(localStorage, options = {}) {
         this.localStorage = localStorage;
@@ -24,6 +55,12 @@ class BrowserUsageServer {
             if (req.method === 'OPTIONS') {
                 res.writeHead(204);
                 res.end();
+                return;
+            }
+
+            if (req.method === 'GET' && req.url === '/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ status: 'healthy' }));
                 return;
             }
 
@@ -48,13 +85,14 @@ class BrowserUsageServer {
 
                     let accepted = 0;
                     for (const item of items) {
-                        if (!item?.domain || !item?.start_ts || !item?.end_ts || !item?.duration_sec) {
+                        const domain = normalizeDomain(item?.domain);
+                        if (!domain || !item?.start_ts || !item?.end_ts || !item?.duration_sec) {
                             continue;
                         }
 
                         this.localStorage.saveBrowserUsage({
                             browser: item.browser || 'Unknown',
-                            domain: item.domain,
+                            domain,
                             start_ts: item.start_ts,
                             end_ts: item.end_ts,
                             duration_sec: Number(item.duration_sec) || 0
@@ -88,4 +126,4 @@ class BrowserUsageServer {
     }
 }
 
-module.exports = { BrowserUsageServer };
+module.exports = { BrowserUsageServer, normalizeDomain };

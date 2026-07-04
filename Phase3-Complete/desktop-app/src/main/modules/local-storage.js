@@ -28,6 +28,7 @@ class LocalStorage {
     // App Usage
     saveAppUsage(record) {
         const records = this.store.get('appUsage', []);
+        if (this.hasDuplicateRecord(records, record, ['app_name', 'window_title'])) return;
         const merged = this.mergeWithLast(records, record, {
             keys: ['app_name', 'window_title'],
             maxGapSeconds: 3
@@ -61,6 +62,7 @@ class LocalStorage {
     // Idle Intervals
     saveIdleInterval(record) {
         const records = this.store.get('idleIntervals', []);
+        if (this.hasDuplicateRecord(records, record, [])) return;
         const merged = this.mergeWithLast(records, record, {
             keys: [],
             maxGapSeconds: 3
@@ -92,6 +94,7 @@ class LocalStorage {
     // Presence Intervals
     savePresenceInterval(record) {
         const records = this.store.get('presenceIntervals', []);
+        if (this.hasDuplicateRecord(records, record, ['state'])) return;
         const merged = this.mergeWithLast(records, record, {
             keys: ['state'],
             maxGapSeconds: 3
@@ -123,6 +126,7 @@ class LocalStorage {
     // Browser Usage
     saveBrowserUsage(record) {
         const records = this.store.get('browserUsage', []);
+        if (this.hasDuplicateRecord(records, record, ['browser', 'domain'])) return;
         const merged = this.mergeWithLast(records, record, {
             keys: ['browser', 'domain'],
             maxGapSeconds: 3
@@ -237,6 +241,18 @@ class LocalStorage {
         last.end_ts = nextRecord.end_ts;
         last.duration_sec = mergedDuration;
         return true;
+    }
+
+    hasDuplicateRecord(records, nextRecord, keys = []) {
+        return records.some((record) => {
+            if (record.start_ts !== nextRecord.start_ts || record.end_ts !== nextRecord.end_ts) {
+                return false;
+            }
+            for (const key of keys) {
+                if (record[key] !== nextRecord[key]) return false;
+            }
+            return true;
+        });
     }
 
     normalizeNamespace(value) {

@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 import app.models  # noqa: F401
-from app.core.database import Base, get_engine_kwargs
+from app.core.database import Base, get_engine_kwargs, normalize_database_url
 
 
 config = context.config
@@ -16,7 +16,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    url = normalize_database_url(os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url"))
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -31,7 +31,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section, {})
-    database_url = os.getenv("DATABASE_URL") or configuration.get("sqlalchemy.url")
+    database_url = normalize_database_url(os.getenv("DATABASE_URL") or configuration.get("sqlalchemy.url"))
     configuration["sqlalchemy.url"] = database_url
     configuration.update(get_engine_kwargs(database_url))
     connectable = engine_from_config(

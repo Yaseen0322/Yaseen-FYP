@@ -11,9 +11,11 @@ process.env.XDG_CONFIG_HOME = path.join(tempHome, '.config');
 const Store = require('electron-store');
 const { LocalStorage } = require('../src/main/modules/local-storage');
 const { DataSync } = require('../src/main/modules/data-sync');
+const { normalizeDomain } = require('../src/main/modules/browser-usage-server');
 const {
     buildLocalDailySummary,
     buildLocalTimeline,
+    coalesceTimelineBlocks,
     getLocalDateString,
     mergeTimelines,
     mergeSummaries,
@@ -225,4 +227,78 @@ test('timeline merge returns newest entries first and removes exact duplicates',
     assert.equal(merged.blocks.length, 2);
     assert.equal(merged.blocks[0].type, 'app_usage');
     assert.equal(merged.blocks[1].type, 'idle');
+});
+
+test('local storage suppresses exact duplicate idle and browser records', () => {
+    const storage = new LocalStorage('user-dedupe-records');
+    storage.clearAll();
+
+    const idleRecord = {
+        start_ts: '2026-06-28T07:00:00.000Z',
+        end_ts: '2026-06-28T07:05:00.000Z',
+        duration_sec: 300,
+    };
+    storage.saveIdleInterval(idleRecord);
+    storage.saveIdleInterval(idleRecord);
+
+    const browserRecord = {
+        browser: 'Chrome',
+        domain: 'youtube.com',
+        start_ts: '2026-06-28T07:05:00.000Z',
+        end_ts: '2026-06-28T07:08:00.000Z',
+        duration_sec: 180,
+    };
+    storage.saveBrowserUsage(browserRecord);
+    storage.saveBrowserUsage(browserRecord);
+
+    assert.equal(storage.getUnsyncdIdleIntervals().length, 1);
+    assert.equal(storage.getUnsyncdBrowserUsage().length, 1);
+
+    storage.clearAll();
+});
+
+test('browser usage server normalizes website domains for top website reports', () => {
+    assert.equal(normalizeDomain('https://www.youtube.com/watch?v=1'), 'youtube.com');
+    assert.equal(normalizeDomain('www.github.com.'), 'github.com');
+    assert.equal(normalizeDomain('docs.google.com'), 'docs.google.com');
+    assert.equal(normalizeDomain('localhost'), null);
+});
+
+test('timeline coalesces contiguous chunks without merging camera state changes', () => {
+    const blocks = coalesceTimelineBlocks([
+        {
+            type: 'idle',
+            start_ts: '2026-06-28T07:00:00.000Z',
+            end_ts: '2026-06-28T07:01:00.000Z',
+            duration_sec: 60,
+            details: null,
+        },
+        {
+            type: 'idle',
+            start_ts: '2026-06-28T07:01:00.000Z',
+            end_ts: '2026-06-28T07:03:00.000Z',
+            duration_sec: 120,
+            details: null,
+        },
+        {
+            type: 'camera_off',
+            start_ts: '2026-06-28T07:03:00.000Z',
+            end_ts: '2026-06-28T07:04:00.000Z',
+            duration_sec: 60,
+            details: null,
+        },
+        {
+            type: 'present',
+            start_ts: '2026-06-28T07:04:00.000Z',
+            end_ts: '2026-06-28T07:05:00.000Z',
+            duration_sec: 60,
+            details: null,
+        },
+    ]);
+
+    assert.equal(blocks.length, 3);
+    assert.equal(blocks[0].type, 'idle');
+    assert.equal(blocks[0].duration_sec, 180);
+    assert.equal(blocks[1].type, 'camera_off');
+    assert.equal(blocks[2].type, 'present');
 });
